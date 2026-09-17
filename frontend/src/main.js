@@ -1,4 +1,8 @@
-const API = window.HSCODE_API || `${location.protocol}//${location.hostname}:8000/api/v1`;
+const API =
+  window.HSCODE_API ||
+  (location.port === "5173"
+    ? `${location.protocol}//${location.hostname}:8000/api/v1`
+    : "/api/v1");
 
 async function api(path, options = {}) {
   const res = await fetch(`${API}${path}`, {
