@@ -1,0 +1,56 @@
+{
+  "project": "HSCode-GraphRAG Empirical System",
+  "objective": "Build a closed-loop HS classification stack with CustomsBrokerAgent supervision, persist all evidence, and generate empirical + paper drafts.",
+  "layers": [
+    "Knowledge layer (HS KG + communities)",
+    "Orchestration layer (Hypothesis + Critic + Knowledge loop)",
+    "Retrieval/Generation layer (Local+Global GraphRAG, GIR grounding)",
+    "Supervisory layer (CustomsBrokerAgent, Opinion Report, K_history)"
+  ],
+  "gaps_addressed": [
+    "Added meta-agent program office for reproducible empirical delivery",
+    "Docker/AWS packaging for deployable verification",
+    "Persistent stores for classifications, deltas, reports, paper sections",
+    "Ablation path (no_feedback) for RQ5 closed-loop evaluation"
+  ],
+  "phases": [
+    {
+      "id": "P1",
+      "name": "Data & KG",
+      "agents": [
+        "data_collect"
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "Platform build verify",
+      "agents": [
+        "backend_dev",
+        "frontend_dev",
+        "api"
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "Empirical analysis",
+      "agents": [
+        "analysis"
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "Verification gate",
+      "agents": [
+        "verification"
+      ]
+    },
+    {
+      "id": "P5",
+      "name": "Reports & paper",
+      "agents": [
+        "empirical_report",
+        "paper_writer"
+      ]
+    }
+  ]
+}

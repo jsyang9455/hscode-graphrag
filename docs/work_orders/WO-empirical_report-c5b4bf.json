@@ -1,0 +1,10 @@
+{
+  "order_id": "WO-empirical_report-c5b4bf",
+  "agent_role": "empirical_report",
+  "title": "Generate empirical verification report",
+  "instructions": "Write markdown/JSON report from DB metrics and experiment runs.",
+  "acceptance_criteria": [
+    "success_flag",
+    "artifacts_present"
+  ]
+}

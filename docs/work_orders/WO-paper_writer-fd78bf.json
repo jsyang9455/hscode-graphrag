@@ -1,0 +1,10 @@
+{
+  "order_id": "WO-paper_writer-fd78bf",
+  "agent_role": "paper_writer",
+  "title": "Draft paper sections from stored evidence",
+  "instructions": "Produce APA-oriented paper draft sections persisted to DB and reports/.",
+  "acceptance_criteria": [
+    "success_flag",
+    "artifacts_present"
+  ]
+}

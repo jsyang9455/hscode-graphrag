@@ -1,0 +1,11 @@
+{
+  "order_id": "WO-data_collect-52ae20",
+  "agent_role": "data_collect",
+  "title": "Seed KCS-style cases and export HS KG",
+  "instructions": "Load demo product cases; export knowledge graph JSON for auditability.",
+  "acceptance_criteria": [
+    "success_flag",
+    "kg_exported",
+    "artifacts_present"
+  ]
+}

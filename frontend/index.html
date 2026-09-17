@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HSCode-GraphRAG | 관세사 총괄 에이전트 실증</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./src/styles/app.css" />
+  </head>
+  <body>
+    <div class="atmosphere"></div>
+    <header class="topbar">
+      <div class="brand">HSCode-GraphRAG</div>
+      <nav>
+        <a href="#classify">분류</a>
+        <a href="#metrics">지표</a>
+        <a href="#opinions">의견서</a>
+        <a href="#agents">에이전트</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" id="top">
+        <p class="brand-hero">HSCode-GraphRAG</p>
+        <h1>관세사 총괄 에이전트 기반 폐루프 HS 분류 실증</h1>
+        <p class="lede">이중 채널 GraphRAG와 CustomsBrokerAgent 감독으로 규제 준수 분류·의견서·K_history를 한 흐름으로 검증합니다.</p>
+        <div class="cta-row">
+          <button id="btn-seed" class="btn primary">시드 데이터 적재</button>
+          <button id="btn-batch" class="btn">일괄 실증 실행</button>
+          <a class="btn ghost" href="#classify">단일 분류 시작</a>
+        </div>
+      </section>
+
+      <section id="classify" class="panel">
+        <h2>단일 상품 분류</h2>
+        <p class="hint">상품 설명을 입력하면 Local/Global 검색 → 가설/비판 → 관세사 총괄 검토 → 의견서가 저장됩니다.</p>
+        <form id="classify-form">
+          <label>상품 설명
+            <textarea id="description" rows="3" required placeholder="예: Hydrating facial cream with hyaluronic acid"></textarea>
+          </label>
+          <div class="row">
+            <label>정답 HS (선택)
+              <input id="gt" placeholder="3304.99.1000" />
+            </label>
+            <label class="check">
+              <input type="checkbox" id="closed-loop" checked /> 폐루프 피드백
+            </label>
+          </div>
+          <button type="submit" class="btn primary">분류 실행</button>
+        </form>
+        <pre id="classify-result" class="result" hidden></pre>
+      </section>
+
+      <section id="metrics" class="panel">
+        <h2>실증 지표</h2>
+        <div id="metrics-grid" class="metrics-grid"></div>
+      </section>
+
+      <section id="opinions" class="panel">
+        <h2>최근 분류 / 의견서</h2>
+        <div id="class-list" class="list"></div>
+      </section>
+
+      <section id="agents" class="panel">
+        <h2>메타 에이전트 작업지시</h2>
+        <div id="wo-list" class="list"></div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Closed-Loop Expert-Supervised HS Classification</span>
+    </footer>
+    <script src="./src/main.js"></script>
+  </body>
+</html>

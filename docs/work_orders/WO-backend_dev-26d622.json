@@ -1,0 +1,10 @@
+{
+  "order_id": "WO-backend_dev-26d622",
+  "agent_role": "backend_dev",
+  "title": "Verify backend classification stack",
+  "instructions": "Confirm importable modules, requirements, and Dockerfile for API services.",
+  "acceptance_criteria": [
+    "success_flag",
+    "artifacts_present"
+  ]
+}

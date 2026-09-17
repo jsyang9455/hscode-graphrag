@@ -1,0 +1,10 @@
+{
+  "order_id": "WO-verification-bb5795",
+  "agent_role": "verification",
+  "title": "Verify all prior agent deliverables",
+  "instructions": "Check acceptance criteria; list failed roles for remediation.",
+  "acceptance_criteria": [
+    "success_flag",
+    "artifacts_present"
+  ]
+}

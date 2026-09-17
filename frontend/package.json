@@ -1,0 +1,9 @@
+{
+  "name": "hscode-graphrag-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "python3 -m http.server 5173 --directory .",
+    "build": "mkdir -p dist && cp index.html dist/ && cp -r src dist/src"
+  }
+}

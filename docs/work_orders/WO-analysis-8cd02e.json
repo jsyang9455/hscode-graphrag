@@ -1,0 +1,11 @@
+{
+  "order_id": "WO-analysis-8cd02e",
+  "agent_role": "analysis",
+  "title": "Run closed-loop empirical classification",
+  "instructions": "Classify all seeded cases with closed-loop feedback; record ablation pass metrics.",
+  "acceptance_criteria": [
+    "success_flag",
+    "metrics_nonempty",
+    "artifacts_present"
+  ]
+}

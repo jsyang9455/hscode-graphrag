@@ -1,0 +1,10 @@
+{
+  "order_id": "WO-frontend_dev-f719e1",
+  "agent_role": "frontend_dev",
+  "title": "Verify frontend dashboard scaffold",
+  "instructions": "Confirm dashboard HTML/JS/CSS and container build files exist.",
+  "acceptance_criteria": [
+    "success_flag",
+    "artifacts_present"
+  ]
+}

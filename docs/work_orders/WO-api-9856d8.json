@@ -1,0 +1,11 @@
+{
+  "order_id": "WO-api-9856d8",
+  "agent_role": "api",
+  "title": "Smoke-test REST API",
+  "instructions": "Hit health, seed, classify, metrics endpoints; ensure persistence works.",
+  "acceptance_criteria": [
+    "success_flag",
+    "api_health",
+    "artifacts_present"
+  ]
+}
