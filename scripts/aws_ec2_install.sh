@@ -75,11 +75,15 @@ done
 curl -sf http://127.0.0.1:8000/api/v1/health || true
 echo
 
+# Ensure demo login works even on older images
+curl -sf -X POST http://127.0.0.1:8000/api/v1/auth/ensure-demo >/dev/null || true
+
 echo "==> Done"
 echo "  UI : http://${PUBLIC_IP}:3000"
 echo "  API: http://${PUBLIC_IP}:8000/docs"
 echo "  App: $APP_DIR"
 echo
-echo "Create demo account if needed:"
-echo "  curl -s -X POST http://127.0.0.1:8000/api/v1/auth/signup -H 'Content-Type: application/json' \\"
-echo "    -d '{\"email\":\"test@demo-customs.com\",\"password\":\"Test1234!\",\"full_name\":\"테스트관세사\",\"office_code\":\"DEMO-01\",\"office_name\":\"데모관세사무소\"}'"
+echo "Demo login:"
+echo "  email: test@demo-customs.com"
+echo "  password: Test1234!"
+echo "  office: DEMO-01"

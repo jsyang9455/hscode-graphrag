@@ -50,9 +50,13 @@ curl -fsSL https://raw.githubusercontent.com/jsyang9455/tradeflow-hscode-graphra
 테스트 계정 생성:
 
 ```bash
-curl -s -X POST http://127.0.0.1:8000/api/v1/auth/signup \
+# 최신 이미지: 기동 시 자동 생성. 없으면:
+curl -s -X POST http://127.0.0.1:8000/api/v1/auth/ensure-demo
+
+# 로그인 확인
+curl -s -X POST http://127.0.0.1:8000/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"test@demo-customs.com","password":"Test1234!","full_name":"테스트관세사","office_code":"DEMO-01","office_name":"데모관세사무소"}'
+  -d '{"email":"test@demo-customs.com","password":"Test1234!","office_code":"DEMO-01"}'
 ```
 
 ---

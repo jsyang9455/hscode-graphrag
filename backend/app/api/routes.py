@@ -115,6 +115,14 @@ def login(req: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
     return AuthResponse(access_token=token, user=_user_payload(user, office))
 
 
+@router.post("/auth/ensure-demo")
+def ensure_demo(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Create DEMO-01 test account if missing (safe to call repeatedly)."""
+    from backend.app.services.auth.bootstrap import ensure_demo_account
+
+    return ensure_demo_account(db)
+
+
 @router.get("/auth/me")
 def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
     office = db.query(Office).filter(Office.id == user.office_id).first()

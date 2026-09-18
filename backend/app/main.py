@@ -8,6 +8,7 @@ from backend.app.api.routes import router
 from backend.app.api.chat_docs import router as chat_docs_router
 from backend.app.core.config import get_settings
 from backend.app.db.models import HsCodeRecord, init_db, get_session_factory
+from backend.app.services.auth.bootstrap import ensure_demo_account
 from backend.app.services.knowledge.graph import get_kg
 from backend.app.services.knowledge.loader import ingest_kcs_hsk, ingest_wco_fallback, KCS_CSV
 
@@ -17,7 +18,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="HSCode-GraphRAG API",
         description="Office-tenant Customs Broker HITL + KCS HSK GraphRAG (legacy hscode_prj data)",
-        version="0.3.0",
+        version="0.3.1",
     )
     app.add_middleware(
         CORSMiddleware,
@@ -38,6 +39,11 @@ def create_app() -> FastAPI:
         Session = get_session_factory()
         db = Session()
         try:
+            demo = ensure_demo_account(db)
+            print(
+                f"[startup] demo account email={demo['email']} "
+                f"office={demo['office_code']} created_user={demo['created_user']}"
+            )
             n = db.query(HsCodeRecord).count()
             if n < 100:
                 priority = Path("data/kcs/kcs_hsk_priority.csv")

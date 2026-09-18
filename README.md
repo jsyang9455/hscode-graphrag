@@ -89,9 +89,20 @@ curl -sf http://127.0.0.1:8000/api/v1/health
 - UI: `http://<EC2_PUBLIC_IP>:3000`
 - API docs: `http://<EC2_PUBLIC_IP>:8000/docs`
 
-### 5) 테스트 계정 (최초 1회)
+### 5) 테스트 계정
 
-UI 회원가입을 쓰거나:
+앱 기동 시 `DEMO-01` / `test@demo-customs.com` / `Test1234!` 계정이 **자동 생성**됩니다.
+
+계정이 없다면 EC2에서:
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/v1/auth/ensure-demo
+curl -s -X POST http://127.0.0.1:8000/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"test@demo-customs.com","password":"Test1234!","office_code":"DEMO-01"}'
+```
+
+또는 수동 회원가입:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8000/api/v1/auth/signup \
@@ -104,8 +115,6 @@ curl -s -X POST http://127.0.0.1:8000/api/v1/auth/signup \
     "office_name":"데모관세사무소"
   }'
 ```
-
-로그인: `test@demo-customs.com` / `Test1234!` / 사무실 `DEMO-01`
 
 ### 6) 유용한 운영 명령
 
