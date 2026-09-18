@@ -3,60 +3,73 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>HSCode-GraphRAG | TradeFlow</title>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./src/styles/app.css?v=20260318a" />
+  <title>TradeFlow · 관세사 HS 분류 보좌</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./src/styles/app.css?v=20260318c" />
 </head>
 <body>
-  <div class="atmosphere"></div>
+  <div class="atmosphere" aria-hidden="true"></div>
 
   <section id="view-auth" class="auth-wrap">
     <header class="auth-top">
-      <div class="brand">TradeFlow · HSCode-GraphRAG</div>
-      <div class="muted">관세사 사무실별 폐루프 HS 분류</div>
+      <div class="brand-lockup">
+        <div class="brand">TradeFlow</div>
+        <div class="brand-sub">HSCode-GraphRAG</div>
+      </div>
+      <div class="muted auth-tagline">관세사 사무실 전용 · 근거 기반 HS 분류 보좌</div>
     </header>
-    <div class="auth-card">
+    <div class="auth-stage">
+      <div class="auth-intro">
+        <p class="eyebrow">Customs Broker Workspace</p>
+        <h1 class="auth-title">실무 판단은 관세사가,<br />초안과 근거는 AI가 정리합니다.</h1>
+        <p class="auth-lede">추천 코드·GIR·배제 주석을 의견서 형식으로 제시하고, 사무실별 학습으로 정확도를 높입니다.</p>
+      </div>
+      <div class="auth-card">
       <div class="tabs">
         <button class="tab active" data-tab="login">로그인</button>
-        <button class="tab" data-tab="signup">회원가입</button>
+        <button class="tab" data-tab="signup">사무실 등록</button>
       </div>
       <form id="form-login" class="auth-form">
         <div class="test-account" id="test-account-box">
-          <strong>테스트 계정</strong>
-          <div class="muted">아래 값이 입력란에 미리 채워져 있습니다. 바로 로그인하세요.</div>
+          <strong>데모 접속 정보</strong>
+          <div class="muted">검증용 계정이 미리 입력되어 있습니다.</div>
           <ul>
             <li>이메일: <code>test@demo-customs.com</code></li>
             <li>비밀번호: <code>Test1234!</code></li>
             <li>사무실 코드: <code>DEMO-01</code></li>
           </ul>
-          <button type="button" class="btn ghost" id="btn-fill-test">테스트 계정 다시 채우기</button>
+          <button type="button" class="btn ghost" id="btn-fill-test">데모 계정 다시 채우기</button>
         </div>
         <label>이메일<input id="login-email" type="email" required value="test@demo-customs.com" placeholder="broker@office.com" /></label>
         <label>비밀번호<input id="login-password" type="password" required minlength="8" value="Test1234!" /></label>
         <label>사무실 코드 (선택)<input id="login-office" value="DEMO-01" placeholder="예: SEOUL-01" /></label>
-        <button class="btn primary" type="submit">로그인</button>
+        <button class="btn primary" type="submit">업무 시작</button>
         <p id="login-error" class="error" hidden></p>
       </form>
       <form id="form-signup" class="auth-form" hidden>
         <label>이메일<input id="su-email" type="email" required /></label>
         <label>비밀번호 (8자+)<input id="su-password" type="password" required minlength="8" /></label>
-        <label>이름<input id="su-name" required placeholder="홍관세" /></label>
+        <label>성명<input id="su-name" required placeholder="홍관세" /></label>
         <label>사무실 코드<input id="su-office-code" required placeholder="SEOUL-01" /></label>
         <label>사무실명<input id="su-office-name" required placeholder="서울관세사무소" /></label>
-        <button class="btn primary" type="submit">회원가입</button>
+        <button class="btn primary" type="submit">사무실 등록</button>
         <p id="signup-error" class="error" hidden></p>
       </form>
+      </div>
     </div>
   </section>
 
   <section id="view-app" hidden>
     <header class="topbar">
-      <div class="brand">HSCode-GraphRAG</div>
+      <div class="brand-lockup compact">
+        <div class="brand">TradeFlow</div>
+        <div class="brand-sub">HS 분류 보좌</div>
+      </div>
       <nav class="app-nav">
-        <button type="button" class="nav-btn active" data-view="chat">분류 챗봇</button>
+        <button type="button" class="nav-btn active" data-view="chat">HS 분류 상담</button>
         <button type="button" class="nav-btn" data-view="opinions">의견서 검토</button>
-        <button type="button" class="nav-btn" data-view="documents">업무자료 학습</button>
-        <button type="button" class="nav-btn" data-view="admin">지표·관리</button>
+        <button type="button" class="nav-btn" data-view="documents">업무자료</button>
+        <button type="button" class="nav-btn" data-view="admin">운영 지표</button>
       </nav>
       <div class="userbox">
         <span id="user-label" class="muted"></span>
@@ -69,15 +82,15 @@
       <section id="view-chat" class="view-pane active">
         <div class="chat-layout">
           <aside class="chat-side">
-            <button id="btn-new-chat" class="btn primary" type="button">새 대화</button>
+            <button type="button" class="btn primary" id="btn-new-chat">새 의뢰</button>
             <div id="chat-session-list" class="session-list"></div>
-            <div class="side-hint muted">hscode_prj 챗봇처럼 요청을 대화로 받고, 추천 HS·사유를 카드로 보여줍니다.</div>
+            <div class="side-hint muted">의뢰 → AI 초안 → 의견서 검토 순으로 진행합니다. 최종 판단은 관세사 확정입니다.</div>
           </aside>
           <div class="chat-main">
             <form id="chat-form" class="chat-composer">
               <div class="composer-head">
-                <strong>분류 요청</strong>
-                <span class="muted">상품을 입력하면 아래에 추천 결과가 쌓입니다.</span>
+                <strong>분류 의뢰</strong>
+                <span class="muted">상품 정보를 입력하면 추천 HS·GIR·확인 포인트를 의견서 초안으로 제시합니다.</span>
               </div>
               <div class="composer-row">
                 <input id="chat-material" placeholder="재질 (선택)" />
@@ -85,8 +98,8 @@
                 <label class="check compact"><input type="checkbox" id="chat-closed" checked /> 폐루프</label>
               </div>
               <div class="composer-input">
-                <textarea id="chat-input" rows="2" required placeholder="상품을 설명해 주세요. 예: 히알루론산 수분 크림"></textarea>
-                <button class="btn primary" type="submit" id="btn-chat-send">전송</button>
+                <textarea id="chat-input" rows="2" required placeholder="예: 히알루론산 함유 수분 크림, 용도 스킨케어"></textarea>
+                <button class="btn primary" type="submit" id="btn-chat-send">의뢰</button>
               </div>
             </form>
             <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
@@ -97,8 +110,8 @@
       <!-- OPINIONS -->
       <section id="view-opinions" class="view-pane" hidden>
         <div class="panel full">
-          <h2>관세사 의견서 검토</h2>
-          <p class="hint">시스템 추천을 확인·수정하고 조건/상세 의견을 남기면 사무실 GraphRAG에 학습됩니다.</p>
+          <h2>의견서 검토</h2>
+          <p class="hint">시스템 초안을 확인한 뒤 HS를 확정·수정하고, 검토 의견을 남기면 해당 사무실 모델에만 반영됩니다.</p>
           <div class="opinions-grid">
             <div>
               <h3 class="subhead">검토 대기</h3>
@@ -122,7 +135,7 @@
                 <label class="check"><input type="checkbox" name="cond" value="exclusion_note" /> 배제·포함 주석</label>
               </fieldset>
               <label>상세 의견<textarea id="op-detail" rows="4" required placeholder="시정 사유와 실무 근거를 입력하세요"></textarea></label>
-              <button class="btn primary" type="submit">의견 제출 → GraphRAG 학습</button>
+              <button class="btn primary" type="submit">의견 확정 · 학습 반영</button>
             </form>
           </div>
         </div>
@@ -131,8 +144,8 @@
       <!-- DOCUMENTS -->
       <section id="view-documents" class="view-pane" hidden>
         <div class="panel full">
-          <h2>기존 업무자료 업로드 · 분석 · 학습</h2>
-          <p class="hint">의견서·메모·분류 이력을 업로드하거나 직접 붙여넣고, 분석 후 저장하면 사무실 학습에 반영됩니다.</p>
+          <h2>업무자료 분석</h2>
+          <p class="hint">기존 의견서·메모를 업로드하거나 붙여넣은 뒤, 추출 결과를 검토·저장하면 사무실 지식에 반영됩니다.</p>
           <div class="docs-grid">
             <div class="panel-inset">
               <h3 class="subhead">1) 자료 입력</h3>
@@ -166,7 +179,7 @@
                 <label class="check"><input type="checkbox" id="doc-run-classify" checked /> 저장 시 분류도 실행(의견서 대기열 생성)</label>
                 <div class="cta-row">
                   <button type="button" class="btn" id="btn-doc-analyze">분석</button>
-                  <button type="submit" class="btn primary">저장 → 학습 반영</button>
+                  <button type="submit" class="btn primary">저장 · 학습 반영</button>
                 </div>
               </form>
               <pre id="doc-analysis-preview" class="result soft-result" hidden></pre>
@@ -180,7 +193,7 @@
       <!-- ADMIN -->
       <section id="view-admin" class="view-pane" hidden>
         <div class="panel full">
-          <h2>지표 · 학습 · 관리</h2>
+          <h2>운영 지표</h2>
           <div class="cta-row">
             <button id="btn-data" class="btn">데이터 상태</button>
             <button id="btn-ingest" class="btn">HS 전체 적재</button>
@@ -197,6 +210,6 @@
     </main>
   </section>
 
-  <script src="./src/main.js?v=20260318a"></script>
+  <script src="./src/main.js?v=20260318c"></script>
 </body>
 </html>

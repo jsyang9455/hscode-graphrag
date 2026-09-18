@@ -214,6 +214,14 @@ document.getElementById("btn-batch").addEventListener("click", async () => {
 });
 
 /* ---------- Chat ---------- */
+function briefSourceLabel(source) {
+  if (source === "llm") return "AI 의견 초안";
+  if (source === "template_fallback") return "규칙 기반 초안";
+  if (source === "graph" || source === "knowledge_graph") return "지식그래프 정리";
+  if (!source || source === "template") return "시스템 초안";
+  return String(source);
+}
+
 function renderBriefCard(brief, fallback = {}) {
   const rec = brief.recommended || {
     hs: fallback.recommended_hs,
@@ -228,14 +236,14 @@ function renderBriefCard(brief, fallback = {}) {
       <div class="brief-head">
         <h3>${esc(brief.headline || `추천 HS ${rec.hs || ""}`)}</h3>
         <div class="brief-meta">
-          <span class="chip accent">${esc(brief.source || "template")}</span>
+          <span class="chip accent">${esc(briefSourceLabel(brief.source))}</span>
           ${fallback.confidence != null ? `<span class="chip">신뢰도 ${(fallback.confidence * 100).toFixed(1)}%</span>` : ""}
         </div>
       </div>
       <div class="brief-section"><h4>추천 코드</h4>
         <p><span class="brief-code">${esc(rec.hs || "")}</span>${rec.title ? ` — ${esc(rec.title)}` : ""}</p></div>
       <div class="brief-section"><h4>선정 사유</h4><p>${esc(rec.why_selected || brief.narrative_ko || "")}</p></div>
-      <div class="brief-section"><h4>GIR</h4><p>${esc(rec.gir_basis || "-")}</p></div>
+      <div class="brief-section"><h4>GIR 근거</h4><p>${esc(rec.gir_basis || "-")}</p></div>
       ${
         alts.length
           ? `<div class="brief-section"><h4>대안</h4><div class="alt-list">${alts
@@ -287,10 +295,24 @@ function appendChatMessage(msg) {
   box.scrollTop = box.scrollHeight;
 }
 
+function showChatWelcome() {
+  const box = document.getElementById("chat-messages");
+  box.innerHTML = `
+    <div class="bubble-row theirs">
+      <div class="bubble assistant welcome">
+        <div class="bubble-text">상품명·재질·용도를 입력해 주세요. AI가 HS 추천 초안과 검토 포인트를 의견서 형식으로 정리합니다. 최종 확정은 관세사 검토 화면에서 진행합니다.</div>
+      </div>
+    </div>`;
+}
+
 async function loadChatMessages(sessionId) {
   const rows = await api(`/chat/sessions/${sessionId}/messages`);
   const box = document.getElementById("chat-messages");
   box.innerHTML = "";
+  if (!rows.length) {
+    showChatWelcome();
+    return;
+  }
   rows.forEach(appendChatMessage);
 }
 
@@ -298,7 +320,7 @@ async function refreshChatSessions() {
   const rows = await api("/chat/sessions");
   const el = document.getElementById("chat-session-list");
   if (!rows.length) {
-    el.innerHTML = `<p class="muted">대화가 없습니다.</p>`;
+    el.innerHTML = `<p class="muted">의뢰 이력이 없습니다. 새 의뢰를 시작해 주세요.</p>`;
     return;
   }
   el.innerHTML = rows
@@ -329,7 +351,7 @@ async function ensureChatSession() {
   } else {
     const created = await api("/chat/sessions", {
       method: "POST",
-      body: JSON.stringify({ title: "새 HS 분류 대화" }),
+      body: JSON.stringify({ title: "신규 분류 의뢰" }),
     });
     state.chatSessionId = created.id;
   }
@@ -340,7 +362,7 @@ async function ensureChatSession() {
 document.getElementById("btn-new-chat").addEventListener("click", async () => {
   const created = await api("/chat/sessions", {
     method: "POST",
-    body: JSON.stringify({ title: "새 HS 분류 대화" }),
+    body: JSON.stringify({ title: "신규 분류 의뢰" }),
   });
   state.chatSessionId = created.id;
   await loadChatMessages(state.chatSessionId);
@@ -355,7 +377,9 @@ document.getElementById("chat-form").addEventListener("submit", async (e) => {
   if (!content) return;
   const btn = document.getElementById("btn-chat-send");
   btn.disabled = true;
-  btn.textContent = "분류 중…";
+  btn.textContent = "검토 중…";
+  const box = document.getElementById("chat-messages");
+  if (box.querySelector(".bubble.welcome")) box.innerHTML = "";
   appendChatMessage({ role: "user", content });
   input.value = "";
   try {
@@ -376,7 +400,7 @@ document.getElementById("chat-form").addEventListener("submit", async (e) => {
     appendChatMessage({ role: "assistant", content: `오류: ${ex.message}` });
   } finally {
     btn.disabled = false;
-    btn.textContent = "전송";
+    btn.textContent = "의뢰";
   }
 });
 
@@ -407,7 +431,7 @@ document.getElementById("opinion-form").addEventListener("submit", async (e) => 
       }),
     });
     document.getElementById("op-msg").textContent =
-      `학습 반영 완료 · changed=${out.hs_changed} · weights=${(out.learning_artifact?.weight_updates || []).length}`;
+      `의견 확정 · 학습 반영 완료 (HS 변경 ${out.hs_changed ? "예" : "아니오"} · 가중치 ${(out.learning_artifact?.weight_updates || []).length}건)`;
     document.getElementById("opinion-form").hidden = true;
     refreshAll();
   } catch (ex) {
@@ -420,19 +444,19 @@ async function refreshPending() {
   window.__pendingRows = rows;
   const el = document.getElementById("pending-list");
   if (!rows.length) {
-    el.innerHTML = `<p class="muted">대기 중인 의견서가 없습니다. 챗봇에서 분류를 실행하세요.</p>`;
+    el.innerHTML = `<p class="muted">검토 대기 건이 없습니다. HS 분류 상담에서 의뢰를 진행해 주세요.</p>`;
     return;
   }
   el.innerHTML = rows
     .map(
       (r) => `<article class="card-lite">
-      <span class="badge warn">pending</span>
-      <strong>#${r.classification_id} 추천 ${esc(r.recommended_hs)}</strong>
+      <span class="badge warn">검토 대기</span>
+      <strong>#${r.classification_id} 시스템 추천 ${esc(r.recommended_hs)}</strong>
       <div class="muted">${esc(r.description)}</div>
       <pre class="opinion-preview">${esc((r.system_opinion || "").slice(0, 360))}${
         (r.system_opinion || "").length > 360 ? "…" : ""
       }</pre>
-      <button class="btn" data-open="${r.classification_id}">검토하기</button>
+      <button class="btn" data-open="${r.classification_id}">의견서 검토</button>
     </article>`
     )
     .join("");
