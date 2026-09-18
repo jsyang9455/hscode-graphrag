@@ -185,11 +185,18 @@ def merge_graph_and_gpt(
     graph_alternatives: list[str],
     search: dict[str, Any],
     gpt: Optional[dict[str, Any]],
+    harness: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Merge GraphRAG hypothesis with GPT co-recommendation."""
+    h = harness or {}
+    gpt_cand_min = float(h.get("fusion_gpt_candidate_min_conf", 0.55))
+    weak_score = float(h.get("fusion_weak_graph_score", 35.0))
+    weak_gpt = float(h.get("fusion_weak_graph_gpt_conf", 0.8))
+    prefer_specific = bool(h.get("fusion_agree_prefer_gpt_specific", True))
+
     g = _normalize_hs(graph_proposal)
     alts = list(dict.fromkeys([_normalize_hs(a) for a in graph_alternatives if _normalize_hs(a)]))
-    local_codes = [_normalize_hs(h.get("code")) for h in (search.get("local") or [])]
+    local_codes = [_normalize_hs(h0.get("code")) for h0 in (search.get("local") or [])]
     local_codes = [c for c in local_codes if c]
     top_score = float((search.get("local") or [{}])[0].get("score") or 0) if search.get("local") else 0.0
     kg = get_kg()
@@ -211,8 +218,8 @@ def merge_graph_and_gpt(
     # Case A: agreement
     if _same_family(g, l, 6) or g == l:
         fused = g if g else l
-        if l and l != fused and l in kg.by_code:
-            fused = l  # prefer more specific GPT code within same family if known
+        if prefer_specific and l and l != fused and l in kg.by_code:
+            fused = l
         for x in [l] + (gpt.get("alternatives") or []):
             x = _normalize_hs(x)
             if x and x != fused and x not in alts:
@@ -226,7 +233,7 @@ def merge_graph_and_gpt(
         }
 
     # Case B: GPT picks another GraphRAG candidate
-    if in_local and gpt_conf >= 0.55:
+    if in_local and gpt_conf >= gpt_cand_min:
         for x in [g] + (gpt.get("alternatives") or []):
             x = _normalize_hs(x)
             if x and x != l and x not in alts:
@@ -242,7 +249,7 @@ def merge_graph_and_gpt(
         }
 
     # Case C: GPT proposes known HS outside top local — only if GraphRAG is weak
-    if in_kg and gpt_conf >= 0.8 and top_score < 35:
+    if in_kg and gpt_conf >= weak_gpt and top_score < weak_score:
         if g and g not in alts:
             alts.insert(0, g)
         return {
@@ -272,6 +279,7 @@ def co_recommend(
     usage: Optional[str],
     search: dict[str, Any],
     proposal: dict[str, Any],
+    harness: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Run GPT co-recommend + merge. Falls back to GraphRAG-only when LLM unavailable."""
     settings = get_settings()
@@ -313,6 +321,7 @@ def co_recommend(
         graph_alternatives=graph_alts,
         search=search,
         gpt=gpt,
+        harness=harness,
     )
     merged["candidates_fed"] = candidates
     return merged

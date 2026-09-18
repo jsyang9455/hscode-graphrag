@@ -158,7 +158,14 @@ class HSKnowledgeGraph:
                 if kw == tok or (len(kw) >= 4 and kw in q and tok in kw.split()):
                     token_boosts[hs] = token_boosts.get(hs, 0.0) + float(w) * (1.15 if " " in kw else 0.85)
         for hs, boost in token_boosts.items():
-            scores[hs] = scores.get(hs, 0.0) + min(boost, 12.0)
+            cap = 12.0
+            try:
+                from backend.app.services.agents.harness import get_harness
+
+                cap = float(get_harness(office_id).get("office_token_boost_cap", 12.0)) if office_id else 12.0
+            except Exception:  # noqa: BLE001
+                cap = 12.0
+            scores[hs] = scores.get(hs, 0.0) + min(boost, cap)
 
         # 2) Exact query-token hits against title inverted index
         for tok in q_tokens:

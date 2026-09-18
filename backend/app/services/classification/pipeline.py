@@ -19,6 +19,7 @@ from backend.app.db.models import (
 )
 from backend.app.services.classification.rationale import build_broker_brief
 from backend.app.services.classification.llm_recommend import co_recommend
+from backend.app.services.agents.harness import get_harness
 from backend.app.services.knowledge.graph import get_kg
 
 
@@ -44,7 +45,18 @@ class ClassificationOutput:
 
 
 class HypothesisAgent:
-    def propose(self, description: str, search: dict[str, Any], warnings: list[dict]) -> dict[str, Any]:
+    def propose(
+        self,
+        description: str,
+        search: dict[str, Any],
+        warnings: list[dict],
+        harness: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        hcfg = harness or {}
+        min_overlap = int(hcfg.get("k_history_min_overlap", 3))
+        protect_score = float(hcfg.get("k_history_protect_score", 80.0))
+        related_score = float(hcfg.get("k_history_related_score", 40.0))
+
         local = search.get("local") or []
         top = local[0]["code"] if local else "9999.99"
         top_score = float(local[0].get("score") or 0) if local else 0.0
@@ -52,7 +64,6 @@ class HypothesisAgent:
         local_codes = [h.get("code") for h in local[:5] if h.get("code")]
         desc = (description or "").lower()
         desc_tokens = set(re.findall(r"[a-zA-Z가-힣]{2,}", desc))
-        # Generic tokens that should not alone trigger HITL override
         weak = {"상품", "제품", "물품", "테스트", "일반", "용도", "재질", "material", "usage", "function"}
         applied_warning = None
         for w in warnings:
@@ -65,17 +76,15 @@ class HypothesisAgent:
             w_tokens = {t for t in re.findall(r"[a-zA-Z가-힣]{2,}", wdesc) if t not in weak}
             keyword_hit = any(k in desc for k in strong_kws if len(k) >= 3)
             overlap = len(desc_tokens & w_tokens)
-            related = keyword_hit or overlap >= 3
+            related = keyword_hit or overlap >= min_overlap
             if not related:
                 continue
-            # Strong office-learned local hit should not be overridden by weak/unrelated history
             in_local = any(
                 corrected == c or (c and corrected[:4] == c[:4]) for c in local_codes
             )
-            if top_score >= 40 and not in_local and not keyword_hit:
+            if top_score >= related_score and not in_local and not keyword_hit:
                 continue
-            if top_score >= 80 and local and local[0]["code"] != corrected and not keyword_hit:
-                # learned GraphRAG rank is decisive unless history keyword clearly matches
+            if top_score >= protect_score and local and local[0]["code"] != corrected and not keyword_hit:
                 continue
             top = corrected
             applied_warning = w.get("id") or corrected
@@ -277,11 +286,16 @@ class ClassificationPipeline:
             )
         return [r.payload for r in rows]
 
-    def _route(self, description: str) -> str:
-        tokens = set(re.findall(r"[a-zA-Z가-힣0-9]+", description.lower()))
-        if tokens & {"or", "and", "kit", "set", "복합", "세트"} or len(tokens) > 12:
+    def _route(self, description: str, harness: Optional[dict[str, Any]] = None) -> str:
+        h = harness or {}
+        if h.get("force_dual"):
             return "dual"
-        return "local_only" if len(tokens) <= 6 else "dual"
+        tokens = set(re.findall(r"[a-zA-Z가-힣0-9]+", description.lower()))
+        dual_force = int(h.get("dual_force_tokens", 12))
+        local_max = int(h.get("local_only_max_tokens", 6))
+        if tokens & {"or", "and", "kit", "set", "복합", "세트"} or len(tokens) > dual_force:
+            return "dual"
+        return "local_only" if len(tokens) <= local_max else "dual"
 
     def classify(
         self,
@@ -294,19 +308,22 @@ class ClassificationPipeline:
         if not self.kg.loaded:
             self.kg.load_from_db(db)
         self.kg.refresh_office_weights(db, office_id)
+        harness = get_harness(office_id)
 
-        routing = force_routing or self._route(case.description)
+        routing = force_routing or self._route(case.description, harness=harness)
         search = self.kg.dual_channel_search(case.description, routing=routing, office_id=office_id)
+        # apply office token boost cap from harness into search post-pass is handled in kg;
+        # fusion/hypothesis consume harness directly.
         warnings = self._warnings(db, office_id, case.description) if closed_loop else []
-        proposal = self.hypothesis.propose(case.description, search, warnings)
+        proposal = self.hypothesis.propose(case.description, search, warnings, harness=harness)
 
-        # GraphRAG first, then GPT co-search/merge for higher accuracy
         fusion = co_recommend(
             description=case.description,
             material=case.material,
             usage=case.function,
             search=search,
             proposal=proposal,
+            harness=harness,
         )
         proposal = {
             **proposal,
@@ -331,7 +348,13 @@ class ClassificationPipeline:
         )
 
         trajectory = [
-            {"step": "retrieve", "routing": routing, "local_n": len(search["local"]), "global_n": len(search["global"])},
+            {
+                "step": "retrieve",
+                "routing": routing,
+                "local_n": len(search["local"]),
+                "global_n": len(search["global"]),
+                "harness_version": harness.get("version"),
+            },
             {"step": "hypothesize", **{k: v for k, v in proposal.items() if k != "gpt_recommend"}},
             {
                 "step": "gpt_co_recommend",

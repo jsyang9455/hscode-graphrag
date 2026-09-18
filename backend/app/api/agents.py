@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from backend.app.db.models import ExperimentRun, User, get_db
 from backend.app.services.agents.loop import SupervisorAgent
+from backend.app.services.agents.sia_loop import SIAHarnessLoop
+from backend.app.services.agents.harness import get_harness, reset_harness
 from backend.app.services.auth.security import get_current_user
 from backend.app.services.learning.adaptive import after_office_learning, rebuild_office_model
 
@@ -19,6 +21,12 @@ router = APIRouter(tags=["learning-agents"])
 class BlindEvalRequest(BaseModel):
     limit: int = Field(10, ge=3, le=30)
     auto_remediate: bool = True
+
+
+class SIAHarnessRequest(BaseModel):
+    rounds: int = Field(3, ge=1, le=6)
+    apply_opinions: bool = True
+    reset: bool = True
 
 
 @router.post("/learning/retrain")
@@ -67,7 +75,7 @@ def latest_blind_eval(
         db.query(ExperimentRun)
         .filter(
             ExperimentRun.office_id == user.office_id,
-            ExperimentRun.experiment_type == "blind_supervisor_cycle",
+            ExperimentRun.experiment_type.in_(["blind_supervisor_cycle", "sia_harness_loop"]),
         )
         .order_by(ExperimentRun.id.desc())
         .limit(limit)
@@ -79,9 +87,40 @@ def latest_blind_eval(
                 "id": r.id,
                 "name": r.name,
                 "status": r.status,
+                "experiment_type": r.experiment_type,
                 "metrics": r.metrics,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
             for r in rows
         ]
     }
+
+
+@router.get("/agents/sia-harness")
+def get_sia_harness(user: User = Depends(get_current_user)) -> dict[str, Any]:
+    return {"office_id": user.office_id, "harness": get_harness(user.office_id)}
+
+
+@router.post("/agents/sia-harness/reset")
+def reset_sia_harness(user: User = Depends(get_current_user)) -> dict[str, Any]:
+    return {"office_id": user.office_id, "harness": reset_harness(user.office_id)}
+
+
+@router.post("/agents/sia-harness/run")
+def run_sia_harness_loop(
+    req: SIAHarnessRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """SIA-style harness improvement: blind tests + opinion teaching + scaffold patch."""
+    try:
+        return SIAHarnessLoop().run(
+            db,
+            office_id=user.office_id,
+            user_id=user.id,
+            rounds=req.rounds,
+            apply_opinions=req.apply_opinions,
+            reset=req.reset,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"sia harness loop failed: {exc}") from exc

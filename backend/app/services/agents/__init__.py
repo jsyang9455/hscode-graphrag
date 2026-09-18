@@ -1,5 +1,26 @@
-"""Agents package: blind tester / evaluator / supervisor."""
+"""Agents package exports (lazy-safe: avoid circular imports with ClassificationPipeline)."""
 
-from backend.app.services.agents.loop import BlindTesterAgent, EvaluatorAgent, SupervisorAgent
+__all__ = [
+    "BlindTesterAgent",
+    "EvaluatorAgent",
+    "SupervisorAgent",
+    "SIAHarnessLoop",
+    "FeedbackHarnessAgent",
+    "get_harness",
+]
 
-__all__ = ["BlindTesterAgent", "EvaluatorAgent", "SupervisorAgent"]
+
+def __getattr__(name: str):
+    if name in {"BlindTesterAgent", "EvaluatorAgent", "SupervisorAgent"}:
+        from backend.app.services.agents import loop as _loop
+
+        return getattr(_loop, name)
+    if name == "SIAHarnessLoop":
+        from backend.app.services.agents.sia_loop import SIAHarnessLoop
+
+        return SIAHarnessLoop
+    if name in {"FeedbackHarnessAgent", "get_harness"}:
+        from backend.app.services.agents import harness as _harness
+
+        return getattr(_harness, name)
+    raise AttributeError(name)

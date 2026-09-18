@@ -723,6 +723,42 @@ document.getElementById("btn-blind-eval")?.addEventListener("click", async () =>
   }
 });
 
+document.getElementById("btn-sia-harness")?.addEventListener("click", async () => {
+  const box = document.getElementById("agent-status");
+  const btn = document.getElementById("btn-sia-harness");
+  box.hidden = false;
+  box.textContent = "SIA harness 루프 실행 중 (블라인드×의견서×scaffold 패치)…";
+  btn.disabled = true;
+  try {
+    const out = await api("/agents/sia-harness/run", {
+      method: "POST",
+      body: JSON.stringify({ rounds: 3, apply_opinions: true, reset: true }),
+    });
+    box.textContent = JSON.stringify(
+      {
+        summary: out.summary,
+        improved: out.improved,
+        delta_score: out.delta_score,
+        baseline: out.baseline,
+        final: out.final,
+        interpretation: out.interpretation,
+        rounds: out.rounds,
+        harness: out.harness,
+        experiment_run_id: out.experiment_run_id,
+      },
+      null,
+      2
+    );
+    await refreshBlindEvals();
+    refreshWeights();
+    refreshMetrics();
+  } catch (ex) {
+    box.textContent = ex.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 async function refreshAll() {
   await Promise.allSettled([
     refreshPending(),
