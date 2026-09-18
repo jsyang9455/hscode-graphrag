@@ -46,6 +46,8 @@ class HSKnowledgeGraph:
             },
         ]
         self._office_weights: dict[int, dict[tuple[str, str], float]] = {}
+        self.curated: dict[str, list[str]] = {}
+        self.title_index: dict[str, list[str]] = {}
         self.loaded = False
 
     def load_from_db(self, db: Session) -> int:
@@ -65,6 +67,8 @@ class HSKnowledgeGraph:
             for code, r in idx["by_code"].items()
         }
         self.keyword_index = idx["keyword_index"]
+        self.curated = idx.get("curated") or {}
+        self.title_index = idx.get("title_index") or {}
         self.g = nx.DiGraph()
         for code, meta in self.by_code.items():
             self.g.add_node(code, **meta)
@@ -85,22 +89,61 @@ class HSKnowledgeGraph:
         rows = db.query(TenantKeywordWeight).filter(TenantKeywordWeight.office_id == office_id).all()
         self._office_weights[office_id] = {(r.keyword, r.hs_code): r.weight for r in rows}
 
+    @staticmethod
+    def _tokens(text: str) -> list[str]:
+        return [t for t in re.findall(r"[a-zA-Z가-힣0-9]+", (text or "").lower()) if len(t) >= 2]
+
     def local_search(self, query: str, office_id: Optional[int] = None, top_k: int = 8) -> list[dict[str, Any]]:
-        q = query.lower()
+        q = (query or "").lower()
+        q_tokens = self._tokens(q)
         scores: dict[str, float] = {}
         office_w = self._office_weights.get(office_id or -1, {})
-        for kw, codes in self.keyword_index.items():
+
+        # 1) Curated multi-word / keyword phrases (highest priority)
+        curated_hit_codes: set[str] = set()
+        curated_items = sorted(self.curated.items(), key=lambda kv: len(kv[0]), reverse=True)
+        for kw, codes in curated_items:
+            if len(kw) < 2:
+                continue
             if kw in q:
+                weight = 20.0 + min(len(kw), 16) * 0.25
                 for c in codes:
-                    # map to best available leaf/code in graph
-                    target = c if c in self.by_code else next((x for x in self.by_code if x.startswith(c)), c)
+                    target = c if c in self.by_code else next((x for x in self.by_code if x.startswith(c[:4])), None)
+                    if not target:
+                        continue
                     boost = office_w.get((kw, target), office_w.get((kw, c), 1.0))
-                    scores[target] = scores.get(target, 0.0) + 1.5 * float(boost)
+                    # office learning boost capped so it cannot dominate curated misses forever
+                    boost = min(float(boost), 2.5)
+                    scores[target] = scores.get(target, 0.0) + weight * boost
+                    curated_hit_codes.add(target)
+
+        # 2) Exact query-token hits against title inverted index
+        for tok in q_tokens:
+            if tok in {"material", "usage", "function"}:
+                continue
+            for code in self.title_index.get(tok, []):
+                # if curated already selected family, lightly boost siblings only
+                penalty = 0.35 if curated_hit_codes and code not in curated_hit_codes else 1.0
+                scores[code] = scores.get(code, 0.0) + 0.9 * penalty
+
+        # 3) Title overlap ratio (prefer multi-token agreement)
         for code, meta in self.by_code.items():
-            title = (meta.get("title") or "").lower()
-            overlap = sum(1 for tok in re.findall(r"[a-zA-Z가-힣0-9]+", q) if len(tok) > 2 and tok in title)
-            if overlap and meta.get("level", 0) >= 4:
-                scores[code] = scores.get(code, 0.0) + overlap * 0.35
+            if (meta.get("level") or 0) < 4:
+                continue
+            title = f"{meta.get('title_ko') or ''} {meta.get('title_en') or meta.get('title') or ''}".lower()
+            if not title.strip():
+                continue
+            t_tokens = set(self._tokens(title))
+            if not t_tokens or not q_tokens:
+                continue
+            overlap = [t for t in q_tokens if t in t_tokens and t not in {"material", "usage", "function"}]
+            if not overlap:
+                continue
+            ratio = len(overlap) / max(len(set(q_tokens)), 1)
+            level_bonus = 0.25 if (meta.get("level") or 0) >= 10 else 0.1
+            damp = 0.25 if curated_hit_codes and code not in curated_hit_codes else 1.0
+            scores[code] = scores.get(code, 0.0) + (len(overlap) * 0.55 + ratio * 1.2 + level_bonus) * damp
+
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
         hits = []
         for code, score in ranked:

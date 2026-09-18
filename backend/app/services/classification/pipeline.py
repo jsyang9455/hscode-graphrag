@@ -47,15 +47,32 @@ class HypothesisAgent:
         local = search.get("local") or []
         top = local[0]["code"] if local else "9999.99"
         alts = [h["code"] for h in local[1:3]]
+        desc = (description or "").lower()
+        desc_tokens = set(re.findall(r"[a-zA-Z가-힣]{2,}", desc))
+        applied_warning = None
         for w in warnings:
-            if w.get("corrected_code"):
-                top = w["corrected_code"]
+            corrected = w.get("corrected_code")
+            if not corrected:
+                continue
+            kws = [str(k).lower() for k in (w.get("keywords") or []) if str(k).strip()]
+            wdesc = (w.get("description") or "").lower()
+            w_tokens = set(re.findall(r"[a-zA-Z가-힣]{2,}", wdesc))
+            # Only apply HITL override when the past case clearly relates to this query
+            keyword_hit = any(k in desc for k in kws if len(k) >= 2)
+            overlap = len(desc_tokens & w_tokens)
+            related = keyword_hit or overlap >= 2
+            if related:
+                top = corrected
+                applied_warning = w.get("id") or corrected
                 break
         return {
             "agent": "HypothesisAgent",
             "proposed": top,
             "alternatives": alts,
-            "rationale": "Office-scoped Local GraphRAG + K_history warnings",
+            "rationale": "Office-scoped Local GraphRAG + related K_history warnings"
+            if applied_warning
+            else "Office-scoped Local GraphRAG",
+            "warning_applied": applied_warning,
         }
 
 

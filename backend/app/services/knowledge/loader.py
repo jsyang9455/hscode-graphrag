@@ -19,37 +19,92 @@ CHAPTER_KO = ROOT / "data" / "kcs" / "chapter_ko.json"
 META_PATH = ROOT / "data" / "kcs" / "collection_meta.json"
 
 ECOM_KEYWORDS: dict[str, list[str]] = {
-    "cream": ["3304.99.1000", "330499"],
-    "lotion": ["3304.99.1000"],
-    "serum": ["3304.99.1000"],
+    # cosmetics
+    "cream": ["3304.99.1000", "3304"],
+    "lotion": ["3304.99.1000", "3304"],
+    "serum": ["3304.99.1000", "3304"],
     "cosmetic": ["3304"],
     "skincare": ["3304"],
+    "skin care": ["3304"],
     "beauty": ["3304"],
+    "moisturizer": ["3304"],
     "화장품": ["3304"],
     "크림": ["3304"],
     "세럼": ["3304"],
+    "로션": ["3304"],
+    "히알루론": ["3304"],
+    # food / supplements
     "supplement": ["2106"],
     "vitamin": ["2106"],
-    "food": ["2106"],
     "건강식품": ["2106"],
+    # phones
     "smartphone": ["8517"],
     "phone": ["8517"],
     "mobile": ["8517"],
     "스마트폰": ["8517"],
     "휴대폰": ["8517"],
+    # apparel
     "t-shirt": ["6109"],
-    "cotton": ["6109"],
-    "apparel": ["6109"],
+    "tshirt": ["6109"],
+    "tee": ["6109"],
+    "cotton": ["6109", "5208"],
+    "apparel": ["6109", "6209"],
+    "clothing": ["6109", "6209"],
     "티셔츠": ["6109"],
-    "의류": ["6109"],
-    "bottle": ["3923"],
-    "plastic": ["3923"],
-    "병": ["3923"],
+    "의류": ["6109", "6209"],
+    # plastics / bottles (generic plastic pack) vs vacuum flask
+    "plastic bottle": ["3923"],
+    "plastic": ["3923", "3924"],
+    # vacuum flask / thermos — HS 9617
+    "thermos": ["9617"],
+    "flask": ["9617"],
+    "vacuum flask": ["9617"],
+    "drinkware": ["9617", "7323"],
+    "보온병": ["9617"],
+    "텀블러": ["9617", "7323"],
+    "진공보온": ["9617"],
+    # stainless cookware/tableware often 7323 when household
+    "스테인리스 보온": ["9617"],
+    "stainless steel bottle": ["9617"],
+    "보온": ["9617"],
+    # computers
+    "laptop": ["8471"],
+    "notebook": ["8471"],
+    "computer": ["8471"],
+    "pc": ["8471"],
+    "노트북": ["8471"],
+    "컴퓨터": ["8471"],
+    "랩탑": ["8471"],
+    # medical / chips / telecom
     "medical": ["9018"],
     "instrument": ["9018"],
     "의료": ["9018"],
     "chip": ["8542"],
+    "반도체": ["8542"],
     "통신": ["8517"],
+}
+
+# Tokens too generic to auto-index from titles (cause false positives)
+STOP_TOKENS = {
+    "기타",
+    "제품",
+    "제품류",
+    "것으로서",
+    "것으로",
+    "만든",
+    "포함하는",
+    "함유한",
+    "갖춘",
+    "other",
+    "parts",
+    "thereof",
+    "including",
+    "steel",
+    "stainless",
+    "스테인리스",
+    "스테인리스강",
+    "강제",
+    "컴퓨터",  # too broad alone — handled via curated phrases
 }
 
 
@@ -183,19 +238,34 @@ def ingest_wco_fallback(db: Session, csv_path: Path = HS_CSV, limit: int | None 
     return {"added": added, "total_in_db": db.query(HsCodeRecord).count()}
 
 
-def ensure_hs_master(db: Session) -> dict[str, Any]:
+def ensure_hs_master(db: Session, force: bool = False) -> dict[str, Any]:
+    """Load priority KCS (+ optional full master) and fill gaps from WCO HS."""
     count = db.query(HsCodeRecord).count()
-    if count > 1000:
+    if not force and count > 10000:
         return {"total_in_db": count, "skipped": True, "is_full_kcs_hsk10": KCS_CSV.exists()}
+
+    results: dict[str, Any] = {"steps": []}
+    priority = ROOT / "data" / "kcs" / "kcs_hsk_priority.csv"
     if KCS_CSV.exists():
-        return ingest_kcs_hsk(db)
-    return ingest_wco_fallback(db)
+        results["steps"].append(ingest_kcs_hsk(db, csv_path=KCS_CSV))
+    elif priority.exists():
+        results["steps"].append(ingest_kcs_hsk(db, csv_path=priority))
+    else:
+        results["steps"].append({"note": "no kcs csv"})
+
+    # Always try WCO 2/4/6-digit gap fill for broader heading coverage
+    results["steps"].append(ingest_wco_fallback(db))
+    results["total_in_db"] = db.query(HsCodeRecord).count()
+    results["skipped"] = False
+    results["is_full_kcs_hsk10"] = KCS_CSV.exists()
+    results["force"] = force
+    return results
 
 
 def build_runtime_index(db: Session) -> dict[str, Any]:
     records = db.query(HsCodeRecord).all()
     by_code = {r.hs_code: r for r in records}
-    keyword_index: dict[str, list[str]] = {}
+    curated: dict[str, list[str]] = {}
     for kw, codes in ECOM_KEYWORDS.items():
         resolved = []
         for c in codes:
@@ -210,15 +280,30 @@ def build_runtime_index(db: Session) -> dict[str, Any]:
                 resolved.append(matches[0])
             elif c in by_code:
                 resolved.append(c)
-        keyword_index[kw] = resolved or codes
+        curated[kw.lower()] = resolved or codes
 
-    # Token index from Korean/English titles (sample denser chapters for e-com)
+    # Title token inverted index: exact token -> codes (not substring-scanned as phrases)
+    title_index: dict[str, list[str]] = {}
     for r in records:
         if r.level < 6:
             continue
         text = f"{r.title_ko or ''} {r.title_en or ''}".lower()
-        for tok in re.findall(r"[a-zA-Z가-힣]{3,}", text):
-            bucket = keyword_index.setdefault(tok, [])
-            if r.hs_code not in bucket and len(bucket) < 6:
+        for tok in re.findall(r"[a-zA-Z가-힣]{2,}", text):
+            if tok in STOP_TOKENS or len(tok) < 2:
+                continue
+            if tok.isdigit():
+                continue
+            bucket = title_index.setdefault(tok, [])
+            if r.hs_code not in bucket and len(bucket) < 8:
                 bucket.append(r.hs_code)
-    return {"by_code": by_code, "keyword_index": keyword_index, "count": len(records)}
+
+    # backward-compatible combined view (curated preferred)
+    keyword_index = dict(title_index)
+    keyword_index.update(curated)
+    return {
+        "by_code": by_code,
+        "keyword_index": keyword_index,
+        "curated": curated,
+        "title_index": title_index,
+        "count": len(records),
+    }

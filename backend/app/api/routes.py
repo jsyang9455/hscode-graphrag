@@ -321,8 +321,8 @@ def data_status(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @router.post("/admin/ingest-hs")
-def ingest_hs(db: Session = Depends(get_db)) -> dict[str, Any]:
-    meta = ensure_hs_master(db)
+def ingest_hs(force: bool = False, db: Session = Depends(get_db)) -> dict[str, Any]:
+    meta = ensure_hs_master(db, force=force)
     kg = get_kg()
     loaded = kg.load_from_db(db)
     meta["kg_nodes"] = loaded
