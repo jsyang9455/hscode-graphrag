@@ -611,39 +611,345 @@ document.getElementById("doc-edit-form").addEventListener("submit", async (e) =>
   }
 });
 
-/* ---------- Metrics / learning ---------- */
+/* ---------- Admin analytics dashboard ---------- */
+const dashCharts = {};
+
+function pct(v) {
+  if (v == null || Number.isNaN(Number(v))) return "—";
+  return `${(Number(v) * 100).toFixed(1)}%`;
+}
+
+function fmtCi(ci) {
+  if (!ci || ci[0] == null || ci[1] == null) return "—";
+  return `${(ci[0] * 100).toFixed(1)}–${(ci[1] * 100).toFixed(1)}%`;
+}
+
+function destroyChart(key) {
+  if (dashCharts[key]) {
+    dashCharts[key].destroy();
+    delete dashCharts[key];
+  }
+}
+
+function chartColors() {
+  return {
+    accent: "#1b4f72",
+    accent2: "#2f6b5a",
+    soft: "#2a6f97",
+    warn: "#8a5a12",
+    muted: "#5b6b7c",
+    grid: "rgba(20, 32, 51, 0.08)",
+    fills: ["#1b4f72", "#2f6b5a", "#2a6f97", "#5b6b7c", "#8a5a12", "#4a6fa5", "#3d7a6a", "#6b7280"],
+  };
+}
+
+function makeChart(key, canvasId, config) {
+  const el = document.getElementById(canvasId);
+  if (!el || typeof Chart === "undefined") return;
+  destroyChart(key);
+  dashCharts[key] = new Chart(el, config);
+}
+
+function renderKpis(m, paper) {
+  const acc = paper.accuracy || {};
+  const ops = paper.operations || {};
+  const learn = paper.learning || {};
+  const tiles = [
+    {
+      label: "표본 N",
+      value: String(m.n ?? 0),
+      sub: `라벨 ${acc.n_labeled ?? m.n_labeled ?? 0}건`,
+    },
+    {
+      label: "Top-1",
+      value: pct(acc.top1?.rate ?? m.top1),
+      sub: `95% CI ${fmtCi(acc.top1?.ci95)}`,
+      cls: "accent-ok",
+    },
+    {
+      label: "Prefix-4",
+      value: pct(acc.prefix4?.rate ?? m.prefix4),
+      sub: `P6 ${pct(acc.prefix6?.rate ?? m.prefix6)} · Ch ${pct(acc.chapter?.rate ?? m.chapter_hit)}`,
+      cls: "accent-ok",
+    },
+    {
+      label: "ESA",
+      value: pct(acc.esa?.rate ?? m.esa),
+      sub: `RVR ${pct(acc.rvr?.rate ?? m.rvr)}`,
+    },
+    {
+      label: "CIR",
+      value: pct(acc.cir?.rate ?? m.cir),
+      sub: `수정 ${acc.cir?.n_overrides ?? 0} → 재현 ${acc.cir?.incorporated ?? 0}`,
+    },
+    {
+      label: "Escalation",
+      value: pct(ops.escalation_rate ?? m.escalation_rate),
+      sub: `Override ${pct(ops.override_rate ?? m.override_rate)}`,
+      cls: "accent-warn",
+    },
+    {
+      label: "Avg Confidence",
+      value: fmt(ops.avg_confidence ?? m.avg_confidence),
+      sub: `mode-collapse ${ops.mode_collapse_flags ?? m.mode_collapse_flags ?? 0}`,
+    },
+    {
+      label: "학습 가중치",
+      value: String(learn.weight_pairs ?? 0),
+      sub: `의견서 수정률 ${pct(learn.hs_change_rate)}`,
+    },
+  ];
+  document.getElementById("dash-kpi").innerHTML = tiles
+    .map(
+      (t) => `<div class="kpi-tile ${t.cls || ""}">
+      <div class="kpi-label">${esc(t.label)}</div>
+      <div class="kpi-value">${esc(t.value)}</div>
+      <div class="kpi-sub">${esc(t.sub)}</div>
+    </div>`
+    )
+    .join("");
+}
+
+function renderCiTable(acc) {
+  const rows = [
+    ["Top-1", acc.top1],
+    ["Prefix-4", acc.prefix4],
+    ["Prefix-6", acc.prefix6],
+    ["Chapter", acc.chapter],
+    ["ESA", acc.esa],
+    ["RVR", acc.rvr],
+  ];
+  document.getElementById("dash-ci-table").innerHTML = `<table>
+    <thead><tr><th>지표</th><th>비율</th><th>n</th><th>95% CI</th></tr></thead>
+    <tbody>
+      ${rows
+        .map(([name, b]) => {
+          const block = b || {};
+          return `<tr>
+            <td>${esc(name)}</td>
+            <td>${pct(block.rate)}</td>
+            <td>${block.n ?? "—"}</td>
+            <td>${fmtCi(block.ci95)}</td>
+          </tr>`;
+        })
+        .join("")}
+    </tbody>
+  </table>`;
+}
+
+function renderDefinitions(defs) {
+  const el = document.getElementById("dash-definitions");
+  const entries = Object.entries(defs || {});
+  el.innerHTML = entries.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+}
+
+function renderDashCharts(paper) {
+  const c = chartColors();
+  const ts = paper.timeseries?.daily || [];
+  const labels = ts.map((d) => d.date.slice(5));
+  makeChart("timeseries", "chart-timeseries", {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Top-1",
+          data: ts.map((d) => (d.top1 == null ? null : d.top1 * 100)),
+          borderColor: c.accent2,
+          backgroundColor: "rgba(47,107,90,0.12)",
+          tension: 0.25,
+          yAxisID: "y",
+          spanGaps: true,
+        },
+        {
+          label: "Avg Confidence ×100",
+          data: ts.map((d) => (d.avg_confidence == null ? null : d.avg_confidence * 100)),
+          borderColor: c.accent,
+          backgroundColor: "rgba(27,79,114,0.08)",
+          tension: 0.25,
+          yAxisID: "y",
+          borderDash: [5, 4],
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } } },
+      scales: {
+        y: { min: 0, max: 100, grid: { color: c.grid }, ticks: { callback: (v) => `${v}%` } },
+        x: { grid: { display: false } },
+      },
+    },
+  });
+
+  const acc = paper.accuracy || {};
+  const prefixKeys = [
+    ["Top-1", acc.top1],
+    ["P4", acc.prefix4],
+    ["P6", acc.prefix6],
+    ["Ch", acc.chapter],
+    ["ESA", acc.esa],
+  ];
+  makeChart("prefix", "chart-prefix", {
+    type: "bar",
+    data: {
+      labels: prefixKeys.map(([k]) => k),
+      datasets: [
+        {
+          label: "Hit rate %",
+          data: prefixKeys.map(([, b]) => (b?.rate == null ? 0 : b.rate * 100)),
+          backgroundColor: [c.accent2, c.accent, c.soft, c.muted, c.warn],
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { min: 0, max: 100, grid: { color: c.grid }, ticks: { callback: (v) => `${v}%` } },
+        x: { grid: { display: false } },
+      },
+    },
+  });
+
+  const hist = paper.distributions?.confidence_histogram || [];
+  makeChart("confidence", "chart-confidence", {
+    type: "bar",
+    data: {
+      labels: hist.map((h) => h.bin),
+      datasets: [
+        {
+          label: "건수",
+          data: hist.map((h) => h.count),
+          backgroundColor: c.accent,
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, grid: { color: c.grid }, ticks: { precision: 0 } },
+        x: { grid: { display: false } },
+      },
+    },
+  });
+
+  const chapters = (paper.distributions?.chapter_top || []).slice(0, 8);
+  makeChart("chapter", "chart-chapter", {
+    type: "doughnut",
+    data: {
+      labels: chapters.map((x) => `류 ${x.chapter}`),
+      datasets: [
+        {
+          data: chapters.map((x) => x.count),
+          backgroundColor: c.fills.slice(0, chapters.length),
+          borderWidth: 0,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "right", labels: { boxWidth: 10, font: { size: 10 } } } },
+    },
+  });
+
+  const status = paper.distributions?.status || [];
+  makeChart("status", "chart-status", {
+    type: "bar",
+    data: {
+      labels: status.map((s) => s.key),
+      datasets: [
+        {
+          label: "건수",
+          data: status.map((s) => s.count),
+          backgroundColor: status.map((_, i) => c.fills[i % c.fills.length]),
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { beginAtZero: true, grid: { color: c.grid }, ticks: { precision: 0 } },
+        y: { grid: { display: false } },
+      },
+    },
+  });
+}
+
 async function refreshMetrics() {
   const m = await api("/metrics");
-  const grid = document.getElementById("metrics-grid");
-  const items = [
-    ["N", m.n],
-    ["Top-1", fmt(m.top1)],
-    ["ESA", fmt(m.esa)],
-    ["RVR", fmt(m.rvr)],
-    ["CIR", fmt(m.cir)],
-    ["Escalation", fmt(m.escalation_rate)],
-    ["Override", fmt(m.override_rate)],
-    ["Avg Conf", fmt(m.avg_confidence)],
-  ];
-  grid.innerHTML = items
-    .map(([label, value]) => `<div class="metric"><div class="label">${label}</div><div class="value">${value}</div></div>`)
-    .join("");
+  const paper = m.paper || {};
+  const stamp = document.getElementById("dash-updated");
+  if (stamp) {
+    const t = paper.generated_at ? new Date(paper.generated_at) : new Date();
+    stamp.textContent = `갱신 ${t.toLocaleString("ko-KR")}`;
+  }
+  renderKpis(m, paper);
+  renderCiTable(paper.accuracy || {});
+  renderDefinitions(paper.definitions || {});
+  // Charts need Chart.js; retry briefly if CDN still loading
+  const paint = () => renderDashCharts(paper);
+  if (typeof Chart !== "undefined") paint();
+  else setTimeout(paint, 400);
+
   const rows = await api("/classifications?limit=12");
   document.getElementById("class-list").innerHTML =
     rows
       .map(
-        (r) => `<article class="card-lite"><span class="badge">${r.status}</span>
-      <strong>#${r.id} ${r.final_hs}</strong>
-      <div class="muted">추천 ${r.recommended_hs} · conf ${fmt(r.confidence)}</div></article>`
+        (r) => `<article class="card-lite"><span class="badge">${esc(r.status)}</span>
+      <strong>#${r.id} ${esc(r.final_hs)}</strong>
+      <div class="muted">추천 ${esc(r.recommended_hs)} · conf ${fmt(r.confidence)} · ${esc(r.review_tier)}</div></article>`
       )
       .join("") || `<p class="muted">분류 결과 없음</p>`;
+
+  // Prefer paper learning top weights when present
+  const learnRows = paper.learning?.top_weights;
+  if (learnRows?.length) {
+    document.getElementById("weights-list").innerHTML = learnRows
+      .map(
+        (r) => `<article class="card-lite"><strong>${esc(r.keyword)} → ${esc(r.hs_code)}</strong>
+      <div class="muted">weight=${fmt(r.weight)} · evidence=${r.evidence_count}</div></article>`
+      )
+      .join("");
+  }
+
+  const exps = paper.experiments || [];
+  const blindEl = document.getElementById("blind-eval-list");
+  if (blindEl && exps.length) {
+    blindEl.innerHTML = exps
+      .map(
+        (r) => `<article class="card-lite">
+        <span class="badge">${esc(r.status)}</span>
+        <strong>#${r.id} ${esc(r.name)}</strong>
+        <div class="muted">${esc(r.type)} · Q ${fmt(r.quality_score)} · P4 ${fmt(r.prefix4_hit_rate)}${
+          r.delta_score != null ? ` · Δ ${fmt(r.delta_score)}` : ""
+        }</div>
+      </article>`
+      )
+      .join("");
+  }
 }
 
 async function refreshWeights() {
   const rows = await api("/learning/weights");
   const el = document.getElementById("weights-list");
+  if (!el) return;
+  // Keep paper top_weights if already richer; still refresh from API when empty
+  if (!rows.length && el.querySelector(".card-lite")) return;
   el.innerHTML = rows.length
     ? rows
+        .slice(0, 12)
         .map(
           (r) => `<article class="card-lite"><strong>${esc(r.keyword)} → ${esc(r.hs_code)}</strong>
       <div class="muted">weight=${fmt(r.weight)} · evidence=${r.evidence_count}</div></article>`
@@ -655,6 +961,8 @@ async function refreshWeights() {
 async function refreshBlindEvals() {
   const el = document.getElementById("blind-eval-list");
   if (!el) return;
+  // If metrics already filled experiments, skip overwrite unless empty
+  if (el.querySelector(".card-lite") && !el.dataset.force) return;
   try {
     const out = await api("/agents/blind-eval/latest?limit=5");
     const runs = out.runs || [];
@@ -677,6 +985,17 @@ async function refreshBlindEvals() {
     el.innerHTML = `<p class="muted">블라인드 검증 이력을 불러오지 못했습니다.</p>`;
   }
 }
+
+document.getElementById("btn-dash-refresh")?.addEventListener("click", async () => {
+  const btn = document.getElementById("btn-dash-refresh");
+  btn.disabled = true;
+  try {
+    await refreshMetrics();
+    await refreshWeights();
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 document.getElementById("btn-retrain")?.addEventListener("click", async () => {
   const box = document.getElementById("agent-status");
@@ -713,7 +1032,9 @@ document.getElementById("btn-blind-eval")?.addEventListener("click", async () =>
       learning_stats: out.learning_stats,
     };
     box.textContent = JSON.stringify(summary, null, 2);
+    document.getElementById("blind-eval-list").dataset.force = "1";
     await refreshBlindEvals();
+    delete document.getElementById("blind-eval-list").dataset.force;
     refreshWeights();
     refreshMetrics();
   } catch (ex) {
@@ -749,7 +1070,9 @@ document.getElementById("btn-sia-harness")?.addEventListener("click", async () =
       null,
       2
     );
+    document.getElementById("blind-eval-list").dataset.force = "1";
     await refreshBlindEvals();
+    delete document.getElementById("blind-eval-list").dataset.force;
     refreshWeights();
     refreshMetrics();
   } catch (ex) {

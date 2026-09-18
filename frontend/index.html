@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TradeFlow · 관세사 HS 분류 보좌</title>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./src/styles/app.css?v=20260318f" />
+  <link rel="stylesheet" href="./src/styles/app.css?v=20260318g" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div class="atmosphere" aria-hidden="true"></div>
@@ -69,7 +70,7 @@
         <button type="button" class="nav-btn active" data-view="chat">HS 분류 상담</button>
         <button type="button" class="nav-btn" data-view="opinions">의견서 검토</button>
         <button type="button" class="nav-btn" data-view="documents">업무자료</button>
-        <button type="button" class="nav-btn" data-view="admin">운영 지표</button>
+        <button type="button" class="nav-btn" data-view="admin">관리 대시보드</button>
       </nav>
       <div class="userbox">
         <span id="user-label" class="muted"></span>
@@ -193,32 +194,117 @@
         </div>
       </section>
 
-      <!-- ADMIN -->
-      <section id="view-admin" class="view-pane" hidden>
-        <div class="panel full">
-          <h2>운영 지표</h2>
-          <div class="cta-row">
-            <button id="btn-data" class="btn">데이터 상태</button>
-            <button id="btn-ingest" class="btn">HS 전체 적재</button>
-            <button id="btn-batch" class="btn">일괄 실증</button>
+      <!-- ADMIN DASHBOARD -->
+      <section id="view-admin" class="view-pane admin-dashboard" hidden>
+        <div class="dash-shell">
+          <header class="dash-header">
+            <div>
+              <p class="eyebrow">Office Analytics · Paper Metrics</p>
+              <h2>관리 대시보드</h2>
+              <p class="dash-lede">
+                Top-1 · Prefix-4/6 · ESA · RVR · CIR 및 Wilson 95% CI — 실증·논문용 통계
+              </p>
+            </div>
+            <div class="dash-header-actions">
+              <span id="dash-updated" class="muted dash-stamp"></span>
+              <button type="button" id="btn-dash-refresh" class="btn ghost">새로고침</button>
+            </div>
+          </header>
+
+          <div class="dash-toolbar">
+            <button id="btn-data" class="btn ghost">데이터 상태</button>
+            <button id="btn-ingest" class="btn ghost">HS 전체 적재</button>
+            <button id="btn-batch" class="btn ghost">일괄 실증</button>
             <button id="btn-retrain" class="btn">사무실 모델 재학습</button>
-            <button id="btn-blind-eval" class="btn">블라인드 검증 사이클</button>
-            <button id="btn-sia-harness" class="btn primary">SIA Harness 개선 루프</button>
+            <button id="btn-blind-eval" class="btn">블라인드 검증</button>
+            <button id="btn-sia-harness" class="btn primary">SIA Harness 루프</button>
           </div>
           <pre id="data-status" class="result" hidden></pre>
           <pre id="agent-status" class="result soft-result" hidden></pre>
-          <h3 class="subhead">사무실 실증 지표</h3>
-          <div id="metrics-grid" class="metrics-grid"></div>
-          <div id="class-list" class="list"></div>
-          <h3 class="subhead">사무실별 학습 가중치 · 동적 패턴</h3>
-          <div id="weights-list" class="list"></div>
-          <h3 class="subhead">최근 블라인드 검증</h3>
-          <div id="blind-eval-list" class="list"></div>
+
+          <div id="dash-kpi" class="dash-kpi" aria-label="핵심 지표"></div>
+
+          <div class="dash-grid">
+            <article class="dash-card dash-card-wide">
+              <div class="dash-card-head">
+                <h3>일별 정확도·신뢰도 추이</h3>
+                <span class="muted">최근 30일 · Top-1(라벨) / Avg Confidence</span>
+              </div>
+              <div class="chart-wrap"><canvas id="chart-timeseries" height="120"></canvas></div>
+            </article>
+
+            <article class="dash-card">
+              <div class="dash-card-head">
+                <h3>계층 정확도 (Prefix)</h3>
+                <span class="muted">정답 라벨 기준 · 95% CI</span>
+              </div>
+              <div class="chart-wrap chart-sm"><canvas id="chart-prefix" height="160"></canvas></div>
+              <div id="dash-ci-table" class="dash-mini-table"></div>
+            </article>
+
+            <article class="dash-card">
+              <div class="dash-card-head">
+                <h3>신뢰도 분포</h3>
+                <span class="muted">Confidence histogram</span>
+              </div>
+              <div class="chart-wrap chart-sm"><canvas id="chart-confidence" height="160"></canvas></div>
+            </article>
+
+            <article class="dash-card">
+              <div class="dash-card-head">
+                <h3>류(Chapter) 분포</h3>
+                <span class="muted">최종 HS 상위 류</span>
+              </div>
+              <div class="chart-wrap chart-sm"><canvas id="chart-chapter" height="160"></canvas></div>
+            </article>
+
+            <article class="dash-card">
+              <div class="dash-card-head">
+                <h3>처리 상태 · 검토 티어</h3>
+                <span class="muted">Operations mix</span>
+              </div>
+              <div class="chart-wrap chart-sm"><canvas id="chart-status" height="160"></canvas></div>
+            </article>
+          </div>
+
+          <div class="dash-grid dash-grid-3">
+            <article class="dash-card">
+              <div class="dash-card-head">
+                <h3>최근 분류</h3>
+                <span class="muted">Classifications</span>
+              </div>
+              <div id="class-list" class="dash-list"></div>
+            </article>
+            <article class="dash-card">
+              <div class="dash-card-head">
+                <h3>학습 가중치 Top</h3>
+                <span class="muted">Office GraphRAG</span>
+              </div>
+              <div id="weights-list" class="dash-list"></div>
+            </article>
+            <article class="dash-card">
+              <div class="dash-card-head">
+                <h3>실험·블라인드 이력</h3>
+                <span class="muted">Experiments</span>
+              </div>
+              <div id="blind-eval-list" class="dash-list"></div>
+            </article>
+          </div>
+
+          <article class="dash-card dash-defs">
+            <div class="dash-card-head">
+              <h3>지표 정의 (논문용)</h3>
+            </div>
+            <dl id="dash-definitions" class="dash-dl"></dl>
+          </article>
+
+          <!-- legacy hook kept empty for any external refs -->
+          <div id="metrics-grid" hidden></div>
         </div>
       </section>
     </main>
   </section>
 
-  <script src="./src/main.js?v=20260318f"></script>
+  <script src="./src/main.js?v=20260318g"></script>
 </body>
 </html>

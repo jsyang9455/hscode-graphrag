@@ -638,3 +638,175 @@ select {
   }
   .chat-side { max-height: 40vh; }
 }
+
+/* —— Admin analytics dashboard —— */
+#view-admin:not([hidden]) {
+  height: 100%;
+  overflow: auto;
+  padding-bottom: 1.5rem;
+}
+.admin-dashboard .dash-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.dash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.35rem 0 0.15rem;
+}
+.dash-header h2 {
+  margin: 0.15rem 0 0.35rem;
+  font-family: var(--font-serif);
+  font-size: 1.55rem;
+  letter-spacing: -0.03em;
+}
+.dash-lede {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  max-width: 40rem;
+  line-height: 1.45;
+}
+.dash-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+.dash-stamp { font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+.dash-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.72);
+}
+.dash-kpi {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+.kpi-tile {
+  position: relative;
+  padding: 0.85rem 0.95rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: linear-gradient(180deg, #fff 0%, rgba(255, 255, 255, 0.88) 100%);
+  box-shadow: 0 1px 0 rgba(20, 32, 51, 0.04);
+  min-height: 5.4rem;
+}
+.kpi-tile .kpi-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.kpi-tile .kpi-value {
+  font-family: var(--font-serif);
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-top: 0.2rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.kpi-tile .kpi-sub {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+.kpi-tile.accent-ok .kpi-value { color: var(--accent-2); }
+.kpi-tile.accent-warn .kpi-value { color: #8a5a12; }
+.dash-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 0.75rem;
+}
+.dash-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.dash-card {
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 0.85rem 0.95rem 1rem;
+  min-width: 0;
+}
+.dash-card-wide { grid-column: 1 / -1; }
+.dash-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+  flex-wrap: wrap;
+}
+.dash-card-head h3 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-family: var(--font-serif);
+  letter-spacing: -0.02em;
+}
+.chart-wrap {
+  position: relative;
+  width: 100%;
+  min-height: 200px;
+}
+.chart-wrap.chart-sm { min-height: 180px; }
+.dash-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 280px;
+  overflow: auto;
+}
+.dash-list .card-lite {
+  padding: 0.65rem 0.75rem;
+  font-size: 0.88rem;
+}
+.dash-mini-table {
+  margin-top: 0.55rem;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+.dash-mini-table table { width: 100%; border-collapse: collapse; }
+.dash-mini-table th,
+.dash-mini-table td {
+  text-align: left;
+  padding: 0.28rem 0.2rem;
+  border-bottom: 1px solid var(--line);
+}
+.dash-mini-table th { color: var(--muted); font-weight: 600; }
+.dash-defs { margin-top: 0.15rem; }
+.dash-dl {
+  display: grid;
+  grid-template-columns: minmax(7rem, 11rem) 1fr;
+  gap: 0.35rem 0.85rem;
+  margin: 0;
+  font-size: 0.84rem;
+}
+.dash-dl dt {
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.dash-dl dd { margin: 0; color: var(--muted); line-height: 1.4; }
+
+@media (max-width: 980px) {
+  .dash-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-grid,
+  .dash-grid-3 { grid-template-columns: 1fr; }
+  .dash-card-wide { grid-column: auto; }
+}
+@media (max-width: 560px) {
+  .dash-kpi { grid-template-columns: 1fr; }
+  .dash-dl { grid-template-columns: 1fr; }
+}
