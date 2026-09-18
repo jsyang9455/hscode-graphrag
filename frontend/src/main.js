@@ -526,7 +526,12 @@ document.getElementById("btn-doc-upload").addEventListener("click", async () => 
   fd.append("doc_type", document.getElementById("doc-type").value);
   try {
     const doc = await api("/documents/upload", { method: "POST", body: fd });
-    msg.textContent = `업로드 완료 #${doc.id}`;
+    const extract = doc.extract || doc.analysis?.extract || {};
+    if (extract.ok === false) {
+      msg.textContent = `업로드 #${doc.id} · 추출 실패 — ${extract.warning || "형식을 확인해 주세요"}`;
+    } else {
+      msg.textContent = `업로드 완료 #${doc.id} · ${extract.format || "파일"} 추출 ${extract.char_count ?? ""}자`;
+    }
     fillDocEditor(doc);
     await refreshDocuments();
   } catch (ex) {

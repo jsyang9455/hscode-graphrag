@@ -29,7 +29,7 @@ from backend.app.services.classification.pipeline import ClassificationPipeline
 from backend.app.services.documents.workdocs import (
     analyze_document_text,
     ensure_upload_dir,
-    extract_text_from_bytes,
+    extract_document,
 )
 from backend.app.services.learning.workdoc_learn import save_work_document_learning
 
@@ -267,9 +267,11 @@ async def upload_document(
     stored = upload_dir / f"{uuid.uuid4().hex}_{safe_name}"
     stored.write_bytes(data)
 
-    text = extract_text_from_bytes(safe_name, data, file.content_type or "")
-    if not text.strip():
-        text = f"(텍스트 추출 실패) 파일명: {safe_name}"
+    extracted = extract_document(safe_name, data, file.content_type or "")
+    if extracted.ok and extracted.text.strip():
+        text = extracted.text
+    else:
+        text = f"(텍스트 추출 실패) {extracted.warning or f'파일명: {safe_name}'}"
 
     doc = WorkDocument(
         office_id=user.office_id,
@@ -280,11 +282,14 @@ async def upload_document(
         storage_path=str(stored),
         raw_text=text,
         status="uploaded",
+        analysis={"extract": extracted.as_dict()},
     )
     db.add(doc)
     db.commit()
     db.refresh(doc)
-    return _doc_payload(doc)
+    payload = _doc_payload(doc)
+    payload["extract"] = extracted.as_dict()
+    return payload
 
 
 @router.post("/documents/paste")
@@ -321,7 +326,10 @@ def analyze_document(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     doc = _doc_or_404(db, doc_id, user)
+    prev_extract = (doc.analysis or {}).get("extract") if isinstance(doc.analysis, dict) else None
     analysis = analyze_document_text(doc.raw_text or "", doc.doc_type)
+    if prev_extract:
+        analysis["extract"] = prev_extract
     doc.analysis = analysis
     doc.status = "analyzed"
     doc.updated_at = datetime.utcnow()

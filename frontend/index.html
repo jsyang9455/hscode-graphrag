@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TradeFlow · 관세사 HS 분류 보좌</title>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./src/styles/app.css?v=20260318c" />
+  <link rel="stylesheet" href="./src/styles/app.css?v=20260318d" />
 </head>
 <body>
   <div class="atmosphere" aria-hidden="true"></div>
@@ -145,7 +145,7 @@
       <section id="view-documents" class="view-pane" hidden>
         <div class="panel full">
           <h2>업무자료 분석</h2>
-          <p class="hint">기존 의견서·메모를 업로드하거나 붙여넣은 뒤, 추출 결과를 검토·저장하면 사무실 지식에 반영됩니다.</p>
+          <p class="hint">회사마다 양식이 달라도 Word(.docx)·PDF·Excel(.xlsx)에서 텍스트·표를 추출합니다. 추출 결과를 검토·수정한 뒤 저장하면 사무실 지식에 반영됩니다. (구형 .doc/.xls, 스캔 PDF는 변환 후 업로드)</p>
           <div class="docs-grid">
             <div class="panel-inset">
               <h3 class="subhead">1) 자료 입력</h3>
@@ -158,7 +158,10 @@
                   <option value="memo">기타 메모</option>
                 </select>
               </label>
-              <label>파일 업로드<input id="doc-file" type="file" accept=".txt,.md,.csv,.pdf,.docx,.json" /></label>
+              <label>파일 업로드
+                <input id="doc-file" type="file" accept=".txt,.md,.csv,.json,.pdf,.docx,.xlsx,.xlsm,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+              </label>
+              <p class="muted doc-format-hint">지원: PDF · Word(.docx) · Excel(.xlsx/.xlsm) · 텍스트/CSV/JSON</p>
               <button type="button" class="btn" id="btn-doc-upload">업로드</button>
               <hr class="soft" />
               <label>직접 붙여넣기<textarea id="doc-paste" rows="7" placeholder="기존 의견서/분류 사유 텍스트를 붙여넣으세요. HS 코드가 포함되면 함께 추출합니다."></textarea></label>
@@ -210,6 +213,6 @@
     </main>
   </section>
 
-  <script src="./src/main.js?v=20260318c"></script>
+  <script src="./src/main.js?v=20260318d"></script>
 </body>
 </html>
