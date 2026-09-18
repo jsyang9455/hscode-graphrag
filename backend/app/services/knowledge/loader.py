@@ -14,6 +14,7 @@ from backend.app.db.models import HsCodeRecord
 
 ROOT = Path(__file__).resolve().parents[4]
 KCS_CSV = ROOT / "data" / "kcs" / "kcs_hsk_master.csv"
+GHKO99_CSV = ROOT / "data" / "kcs" / "ghko99_hscode_enriched.csv"
 HS_CSV = ROOT / "data" / "kcs" / "harmonized_system.csv"
 CHAPTER_KO = ROOT / "data" / "kcs" / "chapter_ko.json"
 META_PATH = ROOT / "data" / "kcs" / "collection_meta.json"
@@ -154,18 +155,39 @@ def ingest_kcs_hsk(db: Session, csv_path: Path = KCS_CSV, limit: int | None = No
                 "heading_title": row.get("세번4단위품명"),
                 "subheading_title": row.get("세번6단위품명"),
                 "tariff_line_title": row.get("세번10단위품명"),
-                "combined": (row.get("final_combined_text") or "")[:800],
+                "combined": (row.get("final_combined_text") or "")[:1200],
                 "legacy_source": row.get("data_source") or "hscode_prj",
             }
+            source_tag = (row.get("data_source") or "hscode_prj").strip() or "hscode_prj"
+            source_name = "ghko99_hscode" if source_tag.startswith("ghko99") else "kcs_hsk_hscode_prj"
             if code in existing:
                 rec = db.query(HsCodeRecord).filter(HsCodeRecord.hs_code == code).first()
                 if rec:
-                    rec.title_ko = title_ko or rec.title_ko
-                    rec.title_en = title_en or rec.title_en
-                    rec.parent_code = parent
-                    rec.level = 10 if len(key) >= 10 else 6
+                    # Prefer richer Korean/English titles; always merge combined aliases.
+                    if title_ko and (not rec.title_ko or len(title_ko) > len(rec.title_ko or "")):
+                        rec.title_ko = title_ko
+                    if title_en and (not rec.title_en or len(title_en) > len(rec.title_en or "")):
+                        rec.title_en = title_en
+                    rec.parent_code = parent or rec.parent_code
+                    rec.level = 10 if len(key) >= 10 else max(rec.level or 0, 6)
                     rec.chapter = chapter
-                    rec.source = "kcs_hsk_hscode_prj"
+                    if source_name == "ghko99_hscode":
+                        rec.source = "ghko99_hscode"
+                    elif not rec.source:
+                        rec.source = source_name
+                    prev = rec.raw if isinstance(rec.raw, dict) else {}
+                    prev_combined = (prev.get("combined") or "") if isinstance(prev, dict) else ""
+                    new_combined = payload.get("combined") or ""
+                    # Prefer newer aliases (ghko99 case names) when merging — put them first.
+                    if source_name == "ghko99_hscode":
+                        merged_combined = " | ".join(
+                            x for x in [new_combined, prev_combined] if x
+                        )[:1200]
+                    else:
+                        merged_combined = " | ".join(
+                            x for x in [prev_combined, new_combined] if x
+                        )[:1200]
+                    payload = {**prev, **payload, "combined": merged_combined}
                     rec.raw = payload
                     updated += 1
                 continue
@@ -177,7 +199,7 @@ def ingest_kcs_hsk(db: Session, csv_path: Path = KCS_CSV, limit: int | None = No
                     title_ko=title_ko or ch_title,
                     parent_code=parent,
                     chapter=chapter,
-                    source="kcs_hsk_hscode_prj",
+                    source=source_name,
                     raw=payload,
                 )
             )
@@ -239,10 +261,29 @@ def ingest_wco_fallback(db: Session, csv_path: Path = HS_CSV, limit: int | None 
     return {"added": added, "total_in_db": db.query(HsCodeRecord).count()}
 
 
+def ingest_ghko99(db: Session, csv_path: Path = GHKO99_CSV, limit: int | None = None) -> dict[str, Any]:
+    """Ingest enriched HS master converted from ghko99/Hscode (HSK + case aliases)."""
+    if not csv_path.exists():
+        return {
+            "added": 0,
+            "updated": 0,
+            "note": f"missing {csv_path}; run scripts/convert_ghko99_hscode.py",
+        }
+    meta = ingest_kcs_hsk(db, csv_path=csv_path, limit=limit)
+    meta["source_project"] = "ghko99/Hscode"
+    meta["source_note"] = (
+        "관세법령정보포털 HSK + 품목분류 사례(DATA.csv) — "
+        "https://github.com/ghko99/Hscode"
+    )
+    meta["is_ghko99_enriched"] = True
+    META_PATH.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return meta
+
+
 def ensure_hs_master(db: Session, force: bool = False) -> dict[str, Any]:
-    """Load priority KCS (+ optional full master) and fill gaps from WCO HS."""
+    """Load priority KCS (+ optional full master / ghko99) and fill gaps from WCO HS."""
     count = db.query(HsCodeRecord).count()
-    if not force and count > 10000:
+    if not force and count > 10000 and not GHKO99_CSV.exists():
         return {"total_in_db": count, "skipped": True, "is_full_kcs_hsk10": KCS_CSV.exists()}
 
     results: dict[str, Any] = {"steps": []}
@@ -254,11 +295,14 @@ def ensure_hs_master(db: Session, force: bool = False) -> dict[str, Any]:
     else:
         results["steps"].append({"note": "no kcs csv"})
 
+    if GHKO99_CSV.exists():
+        results["steps"].append(ingest_ghko99(db, csv_path=GHKO99_CSV))
+
     # Always try WCO 2/4/6-digit gap fill for broader heading coverage
     results["steps"].append(ingest_wco_fallback(db))
     results["total_in_db"] = db.query(HsCodeRecord).count()
     results["skipped"] = False
-    results["is_full_kcs_hsk10"] = KCS_CSV.exists()
+    results["is_full_kcs_hsk10"] = KCS_CSV.exists() or GHKO99_CSV.exists()
     results["force"] = force
     return results
 
@@ -298,18 +342,21 @@ def build_runtime_index(db: Session) -> dict[str, Any]:
         curated[kw.lower()] = _resolve_codes(codes, by_code, hint=kw) or list(codes)
 
     # Title token inverted index: exact token -> codes (not substring-scanned as phrases)
+    # Include ghko99 case aliases stored in raw.combined for broader recall.
     title_index: dict[str, list[str]] = {}
     for r in records:
         if r.level < 6:
             continue
-        text = f"{r.title_ko or ''} {r.title_en or ''}".lower()
+        raw = r.raw if isinstance(r.raw, dict) else {}
+        combined = (raw.get("combined") or "") if isinstance(raw, dict) else ""
+        text = f"{r.title_ko or ''} {r.title_en or ''} {combined}".lower()
         for tok in re.findall(r"[a-zA-Z가-힣]{2,}", text):
             if tok in STOP_TOKENS or len(tok) < 2:
                 continue
             if tok.isdigit():
                 continue
             bucket = title_index.setdefault(tok, [])
-            if r.hs_code not in bucket and len(bucket) < 8:
+            if r.hs_code not in bucket and len(bucket) < 16:
                 bucket.append(r.hs_code)
 
     # backward-compatible combined view (curated preferred)

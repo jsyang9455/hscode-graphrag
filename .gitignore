@@ -24,6 +24,7 @@ orchestration/artifacts/*
 .ruff_cache/
 data/runtime/
 data/kcs/kcs_hsk_master.csv
+data/kcs/ghko99_hscode_enriched.csv
 *.xlsx
 .venv/
 venv/

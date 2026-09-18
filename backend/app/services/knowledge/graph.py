@@ -63,6 +63,7 @@ class HSKnowledgeGraph:
                 "chapter": r.chapter,
                 "parent": r.parent_code,
                 "source": r.source,
+                "combined": ((r.raw or {}).get("combined") if isinstance(r.raw, dict) else "") or "",
                 "rate": 8.0 if r.chapter in {33, 61, 62} else (0.0 if r.chapter in {85, 90} else 6.5),
             }
             for code, r in idx["by_code"].items()
@@ -179,7 +180,10 @@ class HSKnowledgeGraph:
         for code, meta in self.by_code.items():
             if (meta.get("level") or 0) < 4:
                 continue
-            title = f"{meta.get('title_ko') or ''} {meta.get('title_en') or meta.get('title') or ''}".lower()
+            title = (
+                f"{meta.get('title_ko') or ''} {meta.get('title_en') or meta.get('title') or ''} "
+                f"{meta.get('combined') or ''}"
+            ).lower()
             if not title.strip():
                 continue
             t_tokens = set(self._tokens(title))

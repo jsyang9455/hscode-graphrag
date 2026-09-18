@@ -1,10 +1,11 @@
 {
-  "source_file": "/app/data/kcs/kcs_hsk_master.csv",
-  "source_project": "jsyang9455/hscode_prj",
-  "source_note": "관세청 HSK 통합데이터(corrected_integrated_data) — 한글/영문 품목명 포함",
-  "added": 11327,
-  "updated": 0,
-  "total_in_db": 11327,
+  "source_file": "data/kcs/ghko99_hscode_enriched.csv",
+  "source_project": "ghko99/Hscode",
+  "source_note": "관세법령정보포털 HSK + 품목분류 사례(DATA.csv) — https://github.com/ghko99/Hscode",
+  "added": 0,
+  "updated": 11595,
+  "total_in_db": 11654,
   "is_demo_only": false,
-  "is_full_kcs_hsk10": true
+  "is_full_kcs_hsk10": true,
+  "is_ghko99_enriched": true
 }

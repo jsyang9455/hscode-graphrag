@@ -47,9 +47,15 @@ def create_app() -> FastAPI:
                 f"office={demo['office_code']} created_user={demo['created_user']}"
             )
             n = db.query(HsCodeRecord).count()
+            ghko99 = Path("data/kcs/ghko99_hscode_enriched.csv")
             if n < 100:
                 priority = Path("data/kcs/kcs_hsk_priority.csv")
-                if priority.exists():
+                if ghko99.exists():
+                    from backend.app.services.knowledge.loader import ingest_ghko99
+
+                    meta = ingest_ghko99(db, csv_path=ghko99)
+                    print(f"[startup] ghko99 Hscode ingest: {meta}")
+                elif priority.exists():
                     meta = ingest_kcs_hsk(db, csv_path=priority)
                     print(f"[startup] priority KCS ingest: {meta}")
                 elif KCS_CSV.exists():
@@ -58,6 +64,11 @@ def create_app() -> FastAPI:
                 else:
                     meta = ingest_wco_fallback(db)
                     print(f"[startup] WCO fallback: {meta}")
+            elif ghko99.exists() and n < 10000:
+                from backend.app.services.knowledge.loader import ingest_ghko99
+
+                meta = ingest_ghko99(db, csv_path=ghko99)
+                print(f"[startup] ghko99 enrich: {meta}")
             loaded = get_kg().load_from_db(db)
             print(f"[startup] GraphRAG nodes={loaded}")
         except Exception as e:  # noqa: BLE001
