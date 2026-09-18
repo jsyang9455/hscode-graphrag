@@ -25,7 +25,7 @@ services:
       THETA_HIGH: "0.75"
       USE_LLM: ${USE_LLM:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6}
     ports:
       - "8000:8000"
     depends_on:

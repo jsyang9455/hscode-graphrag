@@ -192,21 +192,24 @@ def _llm_enrich(brief: dict[str, Any], context: dict[str, Any]) -> dict[str, Any
     }
     try:
         with httpx.Client(timeout=25.0) as client:
+            model = settings.openai_model
+            payload: dict[str, Any] = {
+                "model": model,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+                ],
+            }
+            if not str(model).lower().startswith("gpt-5"):
+                payload["temperature"] = 0.2
             resp = client.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {settings.openai_api_key}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": settings.openai_model,
-                    "temperature": 0.2,
-                    "response_format": {"type": "json_object"},
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
-                    ],
-                },
+                json=payload,
             )
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"]
@@ -258,6 +261,7 @@ def build_broker_brief(
     review_tier: str,
     metric_flags: list[str],
     routing_mode: str,
+    fusion: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     brief = _template_brief(
         description=description,
@@ -275,6 +279,33 @@ def build_broker_brief(
         metric_flags=metric_flags,
         routing_mode=routing_mode,
     )
+    fusion = fusion or {}
+    gpt = fusion.get("gpt") or {}
+    fusion_mode = fusion.get("fusion") or "graphrag_only"
+    brief["fusion"] = {
+        "mode": fusion_mode,
+        "gpt_hs": gpt.get("recommended_hs"),
+        "gpt_confidence": gpt.get("confidence"),
+        "gpt_model": gpt.get("model"),
+        "gpt_why": gpt.get("why_ko"),
+        "agree": gpt.get("agree_with_graphrag"),
+    }
+    if gpt.get("why_ko") and brief.get("recommended"):
+        mode_label = {
+            "hybrid_agree": "GraphRAG와 GPT가 동일 계열로 합의",
+            "hybrid_gpt_from_candidates": "GraphRAG 후보 중 GPT가 재선정",
+            "hybrid_gpt_override_weak_graph": "GraphRAG 신호가 약해 GPT 보완 적용",
+            "hybrid_graph_primary_gpt_alt": "GraphRAG 우선, GPT는 대안",
+            "graphrag_only": "GraphRAG 단독",
+            "graphrag_only_llm_error": "GraphRAG 단독(GPT 오류 시 폴백)",
+        }.get(fusion_mode, fusion_mode)
+        brief["recommended"]["why_selected"] = (
+            f"{brief['recommended']['why_selected']} "
+            f"[융합: {mode_label}] GPT 검토: {gpt.get('why_ko')}"
+        )
+        if isinstance(brief.get("risks_and_checks"), list) and gpt.get("risks"):
+            brief["risks_and_checks"] = list(dict.fromkeys([*brief["risks_and_checks"], *gpt["risks"]]))[:8]
+
     context = {
         "description": description,
         "material": material,
@@ -289,5 +320,6 @@ def build_broker_brief(
         "review_tier": review_tier,
         "metric_flags": metric_flags,
         "routing_mode": routing_mode,
+        "fusion": brief["fusion"],
     }
     return _llm_enrich(brief, context)

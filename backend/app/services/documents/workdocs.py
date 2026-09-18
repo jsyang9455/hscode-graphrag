@@ -494,27 +494,29 @@ def _llm_analysis(text: str, doc_type: str, draft: dict[str, Any]) -> dict[str, 
     }
     try:
         with httpx.Client(timeout=35.0) as client:
+            json_body: dict = {
+                "model": settings.openai_model,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "당신은 한국 관세사 업무자료 분석 보조원입니다. "
+                            "근거 없는 HS를 만들지 마세요. 양식이 달라도 핵심 필드만 추출합니다."
+                        ),
+                    },
+                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                ],
+            }
+            if not str(settings.openai_model).lower().startswith("gpt-5"):
+                json_body["temperature"] = 0.1
             resp = client.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {settings.openai_api_key}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": settings.openai_model,
-                    "temperature": 0.1,
-                    "response_format": {"type": "json_object"},
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": (
-                                "당신은 한국 관세사 업무자료 분석 보조원입니다. "
-                                "근거 없는 HS를 만들지 마세요. 양식이 달라도 핵심 필드만 추출합니다."
-                            ),
-                        },
-                        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-                    ],
-                },
+                json=json_body,
             )
             resp.raise_for_status()
             data = json.loads(resp.json()["choices"][0]["message"]["content"])

@@ -161,6 +161,7 @@ def classify(
         db.commit()
         db.refresh(case)
     out = pipeline.classify(db, case, office_id=user.office_id, closed_loop=req.closed_loop, force_routing=req.force_routing)
+    brief = (out.opinion or {}).get("broker_brief") or {}
     return ClassifyResponse(
         classification_id=out.classification_id,
         session_id=out.session_id,
@@ -173,9 +174,11 @@ def classify(
         routing_mode=out.routing_mode,
         metric_flags=out.metric_flags,
         opinion=out.opinion,
-        broker_brief=(out.opinion or {}).get("broker_brief") or {},
+        broker_brief=brief,
         candidates=out.local_hits,
         delta=out.delta,
+        fusion=(out.opinion or {}).get("fusion") or brief.get("fusion") or {},
+        trajectory=out.trajectory or [],
     )
 
 

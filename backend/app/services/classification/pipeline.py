@@ -18,6 +18,7 @@ from backend.app.db.models import (
     ProductCase,
 )
 from backend.app.services.classification.rationale import build_broker_brief
+from backend.app.services.classification.llm_recommend import co_recommend
 from backend.app.services.knowledge.graph import get_kg
 
 
@@ -46,25 +47,39 @@ class HypothesisAgent:
     def propose(self, description: str, search: dict[str, Any], warnings: list[dict]) -> dict[str, Any]:
         local = search.get("local") or []
         top = local[0]["code"] if local else "9999.99"
+        top_score = float(local[0].get("score") or 0) if local else 0.0
         alts = [h["code"] for h in local[1:3]]
+        local_codes = [h.get("code") for h in local[:5] if h.get("code")]
         desc = (description or "").lower()
         desc_tokens = set(re.findall(r"[a-zA-Z가-힣]{2,}", desc))
+        # Generic tokens that should not alone trigger HITL override
+        weak = {"상품", "제품", "물품", "테스트", "일반", "용도", "재질", "material", "usage", "function"}
         applied_warning = None
         for w in warnings:
             corrected = w.get("corrected_code")
             if not corrected:
                 continue
             kws = [str(k).lower() for k in (w.get("keywords") or []) if str(k).strip()]
+            strong_kws = [k for k in kws if len(k) >= 3 and k not in weak]
             wdesc = (w.get("description") or "").lower()
-            w_tokens = set(re.findall(r"[a-zA-Z가-힣]{2,}", wdesc))
-            # Only apply HITL override when the past case clearly relates to this query
-            keyword_hit = any(k in desc for k in kws if len(k) >= 2)
+            w_tokens = {t for t in re.findall(r"[a-zA-Z가-힣]{2,}", wdesc) if t not in weak}
+            keyword_hit = any(k in desc for k in strong_kws if len(k) >= 3)
             overlap = len(desc_tokens & w_tokens)
-            related = keyword_hit or overlap >= 2
-            if related:
-                top = corrected
-                applied_warning = w.get("id") or corrected
-                break
+            related = keyword_hit or overlap >= 3
+            if not related:
+                continue
+            # Strong office-learned local hit should not be overridden by weak/unrelated history
+            in_local = any(
+                corrected == c or (c and corrected[:4] == c[:4]) for c in local_codes
+            )
+            if top_score >= 40 and not in_local and not keyword_hit:
+                continue
+            if top_score >= 80 and local and local[0]["code"] != corrected and not keyword_hit:
+                # learned GraphRAG rank is decisive unless history keyword clearly matches
+                continue
+            top = corrected
+            applied_warning = w.get("id") or corrected
+            break
         return {
             "agent": "HypothesisAgent",
             "proposed": top,
@@ -147,6 +162,7 @@ class CustomsBrokerAgentDraft:
         metric_flags: list[str],
         search: Optional[dict[str, Any]] = None,
         routing_mode: str = "dual",
+        fusion: Optional[dict[str, Any]] = None,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         hs = proposal["proposed"]
         digits = re.sub(r"\D", "", hs)
@@ -170,7 +186,8 @@ class CustomsBrokerAgentDraft:
         conf = 0.35 + min(len(critic.get("gir", [])), 3) * 0.12 + history_match * 0.25 - contention * 0.2
         if critic["verdict"] == "BLOCK":
             conf -= 0.4
-        conf = max(0.05, min(0.98, conf))
+        boost = float((fusion or {}).get("confidence_boost") or 0.0)
+        conf = max(0.05, min(0.98, conf + boost))
         tier = "lightweight" if conf >= self.theta_high and "mode_collapse_risk" not in metric_flags else "deep"
         grade = "High" if conf >= 0.75 else ("Medium" if conf >= 0.45 else "Low")
         rate = self.kg.tariff_rate(hs)
@@ -190,6 +207,7 @@ class CustomsBrokerAgentDraft:
             review_tier=tier,
             metric_flags=metric_flags,
             routing_mode=routing_mode,
+            fusion=fusion,
         )
         delta = {
             "original_code": hs,
@@ -218,6 +236,7 @@ class CustomsBrokerAgentDraft:
             "review_status": "pending_broker",
             "broker_brief": brief,
             "selection_rationale": brief.get("recommended", {}).get("why_selected", ""),
+            "fusion": brief.get("fusion") or {},
         }
         meta = {
             "confidence": conf,
@@ -280,6 +299,23 @@ class ClassificationPipeline:
         search = self.kg.dual_channel_search(case.description, routing=routing, office_id=office_id)
         warnings = self._warnings(db, office_id, case.description) if closed_loop else []
         proposal = self.hypothesis.propose(case.description, search, warnings)
+
+        # GraphRAG first, then GPT co-search/merge for higher accuracy
+        fusion = co_recommend(
+            description=case.description,
+            material=case.material,
+            usage=case.function,
+            search=search,
+            proposal=proposal,
+        )
+        proposal = {
+            **proposal,
+            "proposed": fusion.get("proposed") or proposal.get("proposed"),
+            "alternatives": fusion.get("alternatives") or proposal.get("alternatives") or [],
+            "fusion": fusion.get("fusion"),
+            "gpt_recommend": (fusion.get("gpt") or {}),
+        }
+
         critic = self.critic.critique(proposal, search)
         metric_flags = self.guardrail.check(db, office_id, proposal["proposed"], critic.get("gir", []))
         review, opinion, delta = self.broker_draft.draft(
@@ -291,11 +327,19 @@ class ClassificationPipeline:
             metric_flags,
             search=search,
             routing_mode=routing,
+            fusion=fusion,
         )
 
         trajectory = [
             {"step": "retrieve", "routing": routing, "local_n": len(search["local"]), "global_n": len(search["global"])},
-            {"step": "hypothesize", **proposal},
+            {"step": "hypothesize", **{k: v for k, v in proposal.items() if k != "gpt_recommend"}},
+            {
+                "step": "gpt_co_recommend",
+                "fusion": fusion.get("fusion"),
+                "gpt_hs": (fusion.get("gpt") or {}).get("recommended_hs"),
+                "gpt_confidence": (fusion.get("gpt") or {}).get("confidence"),
+                "model": (fusion.get("gpt") or {}).get("model") or get_settings().openai_model,
+            },
             {"step": "critique", **critic},
             {"step": "guardrail", "flags": metric_flags},
             {"step": "system_draft", **review},

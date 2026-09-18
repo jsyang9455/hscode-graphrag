@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     secret_key: str = "dev-secret"
     database_url: str = "sqlite:///./data/runtime/hscode.db"
     openai_api_key: str = ""
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-5.6"
     use_llm: bool = False
     theta_high: float = 0.75
     theta_low: float = 0.45

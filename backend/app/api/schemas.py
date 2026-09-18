@@ -52,6 +52,8 @@ class ClassifyResponse(BaseModel):
     broker_brief: dict[str, Any] = {}
     candidates: list[dict[str, Any]] = []
     delta: dict[str, Any]
+    fusion: dict[str, Any] = {}
+    trajectory: list[dict[str, Any]] = []
 
 
 class BrokerOpinionRequest(BaseModel):
