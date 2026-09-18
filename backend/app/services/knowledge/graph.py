@@ -1,193 +1,129 @@
-"""HS Regulatory Knowledge Graph (demo subset for empirical pipeline)."""
+"""HS Regulatory Knowledge Graph backed by collected HS master + per-office weights."""
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import networkx as nx
+from sqlalchemy.orm import Session
 
-# Minimal but realistic HS regulatory subgraph for demo / empirical runs.
-HS_NODES = [
-    {"id": "ch33", "type": "chapter", "code": "33", "title": "Essential oils and resinoids; perfumery, cosmetic or toilet preparations"},
-    {"id": "h3304", "type": "heading", "code": "3304", "title": "Beauty or make-up preparations and preparations for the care of the skin"},
-    {"id": "h3304.99", "type": "subheading", "code": "3304.99", "title": "Other skin care preparations"},
-    {"id": "h3304.99.1000", "type": "tariff", "code": "3304.99.1000", "title": "Creams / lotions", "rate": 6.5},
-    {"id": "h3304.99.9000", "type": "tariff", "code": "3304.99.9000", "title": "Other beauty preparations", "rate": 8.0},
-    {"id": "ch21", "type": "chapter", "code": "21", "title": "Miscellaneous edible preparations"},
-    {"id": "h2106", "type": "heading", "code": "2106", "title": "Food preparations not elsewhere specified"},
-    {"id": "h2106.90", "type": "subheading", "code": "2106.90", "title": "Other food preparations"},
-    {"id": "h2106.90.9099", "type": "tariff", "code": "2106.90.9099", "title": "Other food preparations nes", "rate": 8.0},
-    {"id": "ch85", "type": "chapter", "code": "85", "title": "Electrical machinery and equipment"},
-    {"id": "h8517", "type": "heading", "code": "8517", "title": "Telephone sets and other apparatus for transmission"},
-    {"id": "h8517.13", "type": "subheading", "code": "8517.13", "title": "Smartphones"},
-    {"id": "h8517.13.0000", "type": "tariff", "code": "8517.13.0000", "title": "Smartphones", "rate": 0.0},
-    {"id": "ch61", "type": "chapter", "code": "61", "title": "Articles of apparel and clothing accessories, knitted"},
-    {"id": "h6109", "type": "heading", "code": "6109", "title": "T-shirts, singlets and other vests, knitted"},
-    {"id": "h6109.10", "type": "subheading", "code": "6109.10", "title": "Of cotton"},
-    {"id": "h6109.10.0000", "type": "tariff", "code": "6109.10.0000", "title": "Cotton T-shirts", "rate": 13.0},
-    {"id": "ch39", "type": "chapter", "code": "39", "title": "Plastics and articles thereof"},
-    {"id": "h3923", "type": "heading", "code": "3923", "title": "Articles for the conveyance or packing of goods, of plastics"},
-    {"id": "h3923.30", "type": "subheading", "code": "3923.30", "title": "Carboys, bottles, flasks"},
-    {"id": "h3923.30.0000", "type": "tariff", "code": "3923.30.0000", "title": "Plastic bottles", "rate": 6.5},
-    {"id": "ch90", "type": "chapter", "code": "90", "title": "Optical, photographic, measuring instruments"},
-    {"id": "h9018", "type": "heading", "code": "9018", "title": "Instruments used in medical sciences"},
-    {"id": "h9018.90", "type": "subheading", "code": "9018.90", "title": "Other medical instruments"},
-    {"id": "h9018.90.9000", "type": "tariff", "code": "9018.90.9000", "title": "Other medical instruments", "rate": 0.0},
-]
-
-# Legal notes / exclusion rules (simplified)
-LEGAL_NOTES = [
-    {
-        "id": "note_ch33_1",
-        "chapter": 33,
-        "text": "This chapter does not cover medicinal preparations of heading 30.03/30.04.",
-        "excludes": ["30"],
-    },
-    {
-        "id": "note_ch21_1",
-        "chapter": 21,
-        "text": "Food preparations with therapeutic claims may be classified in Chapter 30.",
-        "excludes": [],
-    },
-    {
-        "id": "note_ch85_1",
-        "chapter": 85,
-        "text": "Parts of apparatus of this chapter are generally classified with the apparatus.",
-        "excludes": [],
-    },
-    {
-        "id": "gir1",
-        "type": "gir",
-        "code": "GIR1",
-        "text": "Titles of sections/chapters are for ease of reference; classification by terms of headings and notes.",
-    },
-    {
-        "id": "gir3",
-        "type": "gir",
-        "code": "GIR3",
-        "text": "When goods are prima facie classifiable under two or more headings, essential character prevails.",
-    },
-    {
-        "id": "gir6",
-        "type": "gir",
-        "code": "GIR6",
-        "text": "Classification in subheadings shall be determined according to terms of those subheadings.",
-    },
-]
-
-EDGES = [
-    ("ch33", "h3304", "contains"),
-    ("h3304", "h3304.99", "contains"),
-    ("h3304.99", "h3304.99.1000", "contains"),
-    ("h3304.99", "h3304.99.9000", "contains"),
-    ("ch21", "h2106", "contains"),
-    ("h2106", "h2106.90", "contains"),
-    ("h2106.90", "h2106.90.9099", "contains"),
-    ("ch85", "h8517", "contains"),
-    ("h8517", "h8517.13", "contains"),
-    ("h8517.13", "h8517.13.0000", "contains"),
-    ("ch61", "h6109", "contains"),
-    ("h6109", "h6109.10", "contains"),
-    ("h6109.10", "h6109.10.0000", "contains"),
-    ("ch39", "h3923", "contains"),
-    ("h3923", "h3923.30", "contains"),
-    ("h3923.30", "h3923.30.0000", "contains"),
-    ("ch90", "h9018", "contains"),
-    ("h9018", "h9018.90", "contains"),
-    ("h9018.90", "h9018.90.9000", "contains"),
-    # contention links (cross-chapter competition)
-    ("h3304", "h2106", "contends_with"),
-    ("h9018", "h8517", "contends_with"),
-]
-
-KEYWORD_INDEX: dict[str, list[str]] = {
-    "cream": ["3304.99.1000", "3304.99.9000"],
-    "lotion": ["3304.99.1000"],
-    "serum": ["3304.99.1000", "3304.99.9000"],
-    "cosmetic": ["3304.99.9000", "3304.99.1000"],
-    "skincare": ["3304.99.1000"],
-    "beauty": ["3304.99.9000"],
-    "supplement": ["2106.90.9099"],
-    "food": ["2106.90.9099"],
-    "vitamin": ["2106.90.9099"],
-    "smartphone": ["8517.13.0000"],
-    "phone": ["8517.13.0000"],
-    "mobile": ["8517.13.0000"],
-    "t-shirt": ["6109.10.0000"],
-    "tshirt": ["6109.10.0000"],
-    "cotton": ["6109.10.0000"],
-    "apparel": ["6109.10.0000"],
-    "bottle": ["3923.30.0000"],
-    "plastic": ["3923.30.0000"],
-    "packaging": ["3923.30.0000"],
-    "medical": ["9018.90.9000"],
-    "instrument": ["9018.90.9000"],
-    "thermometer": ["9018.90.9000"],
-}
+from backend.app.db.models import HsCodeRecord, TenantKeywordWeight
+from backend.app.services.knowledge.loader import ECOM_KEYWORDS, build_runtime_index, load_chapter_ko
 
 
 class HSKnowledgeGraph:
     def __init__(self) -> None:
         self.g = nx.DiGraph()
-        for node in HS_NODES:
-            self.g.add_node(node["id"], **node)
-        for u, v, rel in EDGES:
-            self.g.add_edge(u, v, relation=rel)
-        self.notes = LEGAL_NOTES
-        self.by_code = {d["code"]: d for d in HS_NODES if "code" in d}
-        self.id_by_code = {d["code"]: d["id"] for d in HS_NODES if "code" in d}
+        self.by_code: dict[str, dict[str, Any]] = {}
+        self.keyword_index: dict[str, list[str]] = dict(ECOM_KEYWORDS)
+        self.notes: list[dict[str, Any]] = [
+            {
+                "id": "note_ch33_1",
+                "chapter": 33,
+                "text": "제33류는 의료용 조제(제30류)를 포함하지 않는다.",
+                "excludes": ["30"],
+            },
+            {
+                "id": "gir1",
+                "type": "gir",
+                "code": "GIR1",
+                "text": "부·류의 표제는 참고용이며, 분류는 항의 용어와 부·류의 주에 따른다.",
+            },
+            {
+                "id": "gir3",
+                "type": "gir",
+                "code": "GIR3",
+                "text": "둘 이상의 항에 해당하면 본질적 특성(Essential Character)을 따른다.",
+            },
+            {
+                "id": "gir6",
+                "type": "gir",
+                "code": "GIR6",
+                "text": "소호 분류는 소호의 용어와 관련 주에 따른다.",
+            },
+        ]
+        self._office_weights: dict[int, dict[tuple[str, str], float]] = {}
+        self.loaded = False
 
-    def local_search(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
+    def load_from_db(self, db: Session) -> int:
+        idx = build_runtime_index(db)
+        self.by_code = {
+            code: {
+                "code": code,
+                "title": (r.title_ko or r.title_en),
+                "title_en": r.title_en,
+                "title_ko": r.title_ko,
+                "level": r.level,
+                "chapter": r.chapter,
+                "parent": r.parent_code,
+                "source": r.source,
+                "rate": 8.0 if r.chapter in {33, 61, 62} else (0.0 if r.chapter in {85, 90} else 6.5),
+            }
+            for code, r in idx["by_code"].items()
+        }
+        self.keyword_index = idx["keyword_index"]
+        self.g = nx.DiGraph()
+        for code, meta in self.by_code.items():
+            self.g.add_node(code, **meta)
+        for code, meta in self.by_code.items():
+            parent = meta.get("parent")
+            if parent and parent in self.by_code:
+                self.g.add_edge(parent, code, relation="contains")
+        # contention edges among sibling chapters commonly contested in e-com
+        for a, b in [("33", "21"), ("85", "90"), ("61", "62")]:
+            nodes_a = [c for c in self.by_code if c.startswith(a)]
+            nodes_b = [c for c in self.by_code if c.startswith(b)]
+            if nodes_a and nodes_b:
+                self.g.add_edge(nodes_a[0], nodes_b[0], relation="contends_with")
+        self.loaded = True
+        return len(self.by_code)
+
+    def refresh_office_weights(self, db: Session, office_id: int) -> None:
+        rows = db.query(TenantKeywordWeight).filter(TenantKeywordWeight.office_id == office_id).all()
+        self._office_weights[office_id] = {(r.keyword, r.hs_code): r.weight for r in rows}
+
+    def local_search(self, query: str, office_id: Optional[int] = None, top_k: int = 8) -> list[dict[str, Any]]:
         q = query.lower()
         scores: dict[str, float] = {}
-        for kw, codes in KEYWORD_INDEX.items():
+        office_w = self._office_weights.get(office_id or -1, {})
+        for kw, codes in self.keyword_index.items():
             if kw in q:
                 for c in codes:
-                    scores[c] = scores.get(c, 0.0) + 1.5
-        for node in HS_NODES:
-            title = (node.get("title") or "").lower()
-            overlap = sum(1 for tok in q.split() if tok and tok in title)
-            if overlap and node.get("type") == "tariff":
-                scores[node["code"]] = scores.get(node["code"], 0.0) + overlap * 0.4
+                    # map to best available leaf/code in graph
+                    target = c if c in self.by_code else next((x for x in self.by_code if x.startswith(c)), c)
+                    boost = office_w.get((kw, target), office_w.get((kw, c), 1.0))
+                    scores[target] = scores.get(target, 0.0) + 1.5 * float(boost)
+        for code, meta in self.by_code.items():
+            title = (meta.get("title") or "").lower()
+            overlap = sum(1 for tok in re.findall(r"[a-zA-Z가-힣0-9]+", q) if len(tok) > 2 and tok in title)
+            if overlap and meta.get("level", 0) >= 4:
+                scores[code] = scores.get(code, 0.0) + overlap * 0.35
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
         hits = []
         for code, score in ranked:
             meta = self.by_code.get(code, {"code": code, "title": code})
-            hits.append({"code": code, "score": round(score, 3), "title": meta.get("title"), "channel": "local"})
+            hits.append(
+                {
+                    "code": code,
+                    "score": round(score, 3),
+                    "title": meta.get("title"),
+                    "channel": "local",
+                    "source": meta.get("source", "kg"),
+                }
+            )
         return hits
 
-    def global_search(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
-        """Community / contention aware search for exclusion cross-check."""
-        local = self.local_search(query, top_k=3)
-        hits = []
+    def global_search(self, query: str, office_id: Optional[int] = None, top_k: int = 8) -> list[dict[str, Any]]:
+        local = self.local_search(query, office_id=office_id, top_k=3)
+        hits: list[dict[str, Any]] = []
         seen = set()
         for hit in local:
             code = hit["code"]
-            nid = self.id_by_code.get(code)
-            if not nid:
-                continue
-            # walk up to heading then follow contends_with
-            for pred in self.g.predecessors(nid):
-                for nbr in self.g.successors(pred):
-                    rel = self.g.edges[pred, nbr].get("relation")
-                    if rel == "contends_with":
-                        for desc in nx.descendants(self.g, nbr):
-                            data = self.g.nodes[desc]
-                            if data.get("type") == "tariff" and data["code"] not in seen:
-                                seen.add(data["code"])
-                                hits.append(
-                                    {
-                                        "code": data["code"],
-                                        "score": 0.8,
-                                        "title": data.get("title"),
-                                        "channel": "global",
-                                        "reason": "chapter_contention",
-                                    }
-                                )
-            # chapter notes
-            chapter = int(code[:2])
+            digits = re.sub(r"\D", "", code)
+            chapter = int(digits[:2]) if len(digits) >= 2 else 0
             for note in self.notes:
                 if note.get("chapter") == chapter:
                     hits.append(
@@ -200,27 +136,52 @@ class HSKnowledgeGraph:
                             "note_id": note["id"],
                         }
                     )
+            # contend neighbors
+            if code in self.g:
+                for _, nbr, data in self.g.edges(code, data=True):
+                    if data.get("relation") == "contends_with" and nbr not in seen:
+                        seen.add(nbr)
+                        meta = self.by_code.get(nbr, {})
+                        hits.append(
+                            {
+                                "code": nbr,
+                                "score": 0.8,
+                                "title": meta.get("title"),
+                                "channel": "global",
+                                "reason": "chapter_contention",
+                            }
+                        )
         return hits[:top_k]
 
-    def dual_channel_search(self, query: str, routing: str = "dual") -> dict[str, Any]:
+    def dual_channel_search(
+        self, query: str, routing: str = "dual", office_id: Optional[int] = None
+    ) -> dict[str, Any]:
         if routing == "local_only":
-            local = self.local_search(query)
-            return {"local": local, "global": [], "routing": routing}
-        if routing == "global_only":
-            global_hits = self.global_search(query)
-            return {"local": [], "global": global_hits, "routing": routing}
+            return {"local": self.local_search(query, office_id), "global": [], "routing": routing}
         return {
-            "local": self.local_search(query),
-            "global": self.global_search(query),
+            "local": self.local_search(query, office_id),
+            "global": self.global_search(query, office_id),
             "routing": "dual",
         }
 
     def tariff_rate(self, hs_code: str) -> float:
-        meta = self.by_code.get(hs_code, {})
-        return float(meta.get("rate", 8.0))
+        meta = self.by_code.get(hs_code)
+        if meta:
+            return float(meta.get("rate", 8.0))
+        # parent fallback
+        digits = re.sub(r"\D", "", hs_code)
+        for code, meta in self.by_code.items():
+            if re.sub(r"\D", "", code) == digits[:6]:
+                return float(meta.get("rate", 8.0))
+        return 8.0
 
     def export_json(self, path: Path) -> None:
-        payload = {"nodes": HS_NODES, "edges": EDGES, "notes": LEGAL_NOTES, "keywords": KEYWORD_INDEX}
+        payload = {
+            "nodes": list(self.by_code.values())[:500],
+            "node_count": len(self.by_code),
+            "keywords": {k: v for k, v in list(self.keyword_index.items())[:200]},
+            "chapter_ko": load_chapter_ko(),
+        }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

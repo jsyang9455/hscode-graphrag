@@ -23,7 +23,9 @@ services:
       DATABASE_URL: postgresql+psycopg2://hscode:hscode@db:5432/hscode_graphrag
       CORS_ORIGINS: http://localhost:3000,http://localhost,http://frontend
       THETA_HIGH: "0.75"
-      USE_LLM: "false"
+      USE_LLM: ${USE_LLM:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
     ports:
       - "8000:8000"
     depends_on:
@@ -33,6 +35,11 @@ services:
       - ./data:/app/data
       - ./reports:/app/reports
       - ./orchestration/artifacts:/app/orchestration/artifacts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   frontend:
     build:

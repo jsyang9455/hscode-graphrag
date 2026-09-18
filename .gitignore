@@ -23,5 +23,7 @@ orchestration/artifacts/*
 .mypy_cache/
 .ruff_cache/
 data/runtime/
-.idea/
-.vscode/
+data/kcs/kcs_hsk_master.csv
+*.xlsx
+.venv/
+venv/

@@ -1,77 +1,169 @@
-# HSCode-GraphRAG
+# TradeFlow · HSCode-GraphRAG
 
-**관세사 총괄 에이전트 기반 지식구동 GraphRAG를 활용한 폐루프 규제 준수 HSCode 분류 실증 시스템**
+관세사 사무실(테넌트)별 **GraphRAG HS 분류 + HITL 의견 학습** 실증 시스템입니다.  
+`jsyang9455/hscode_prj` 관세청 HSK 데이터를 기반으로, 챗봇 분류 · 의견서 검토 · 업무자료 학습 화면을 제공합니다.
 
-연구계획서(`docs/research_plan_extracted.txt`)의 HSCode-GraphRAG 프레임워크를 동작 가능한 실증 스택으로 구현했습니다.
-
-## 구성
-
-| 계층 | 내용 |
+| 화면 | 역할 |
 |------|------|
-| 지식 층 | HS 규제 지식그래프 (데모 서브그래프) + 시드 상품 케이스 |
-| 오케스트레이션 층 | HypothesisAgent / RegulationCritic / Knowledge Loop |
-| 검색·생성 층 | Local + Global 이중 채널 GraphRAG, 적응형 라우팅, GIR 근거 |
-| 감독 층 | **CustomsBrokerAgent** 계층적 검토, Opinion Report, K_history / K_guard 폐루프 |
+| 분류 챗봇 | 대화로 상품 설명 입력 → HS 추천 + 선정 사유 |
+| 의견서 검토 | 시스템 추천 확인/수정 → 사무실 GraphRAG 학습 |
+| 업무자료 학습 | 기존 의견서·메모 업로드/붙여넣기 → 분석 → 학습 반영 |
+| 지표·관리 | metrics / weights / HS 적재 |
 
-### 메타 에이전트 (프로젝트 총괄)
+---
 
-총괄 에이전트(`orchestration/run_pipeline.py`)가 설계·작업지시·이행·검증·재지시를 수행합니다.
+## AWS에서 받아 설치하기 (EC2 + Docker Compose)
 
-1. `data_collect` — 자료 수집·KG export  
-2. `analysis` — 폐루프/개방루프 실증 분석  
-3. `backend_dev` / `frontend_dev` — 개발 산출물 검증  
-4. `api` — REST API 스모크 테스트  
-5. `verification` — 수락 기준 검증  
-6. `empirical_report` — 실증·검증 보고서 생성  
-7. `paper_writer` — DB 저장 데이터 기반 논문 초안 작성  
+Amazon Linux 2023 / Ubuntu 22.04 기준. 보안 그룹에서 **22, 3000, 8000** 포트를 엽니다.
 
-## 빠른 시작 (로컬, Docker 없이)
+### 1) 서버 준비 + Docker 설치
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r backend/requirements.txt
-export PYTHONPATH=.
-export DATABASE_URL=sqlite:///./data/runtime/hscode.db
-mkdir -p data/runtime reports
+# Amazon Linux 2023
+sudo dnf update -y
+sudo dnf install -y git docker
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+# 그룹 반영을 위해 재로그인 후 계속
 
-# 총괄 파이프라인 (시드→분류→검증→보고서→논문)
-python -m orchestration.run_pipeline
-
-# API 서버
-uvicorn backend.app.main:app --reload --port 8000
-
-# 프론트 (별도 터미널)
-cd frontend && python3 -m http.server 5173
+# Ubuntu 22.04
+# sudo apt-get update && sudo apt-get install -y git curl
+# curl -fsSL https://get.docker.com | sudo sh
+# sudo usermod -aG docker $USER
 ```
 
-- API: http://localhost:8000/docs  
-- UI: http://localhost:5173  
+Docker Compose 플러그인:
 
-## Docker / AWS
+```bash
+# Amazon Linux 2023
+sudo dnf install -y docker-compose-plugin || true
+docker compose version
+
+# 없으면 공식 바이너리
+# sudo mkdir -p /usr/local/lib/docker/cli-plugins
+# sudo curl -SL https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64 \
+#   -o /usr/local/lib/docker/cli-plugins/docker-compose
+# sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+```
+
+### 2) GitHub에서 클론
+
+```bash
+git clone https://github.com/jsyang9455/tradeflow-hscode-graphrag.git
+cd tradeflow-hscode-graphrag
+```
+
+또는 원클릭 스크립트:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jsyang9455/tradeflow-hscode-graphrag/main/scripts/aws_ec2_install.sh | bash
+```
+
+### 3) 환경 설정
+
+```bash
+cp .env.example .env
+# 필요 시 편집
+nano .env
+```
+
+주요 변수:
+
+| 변수 | 설명 |
+|------|------|
+| `USE_LLM` | `true` 시 OpenAI로 사유/문서 분석 문장 정리 |
+| `OPENAI_API_KEY` | OpenAI API 키 (없으면 규칙 기반 동작) |
+| `OPENAI_MODEL` | 기본 `gpt-4o-mini` |
+| `CORS_ORIGINS` | 브라우저 출처. EC2면 `http://<PUBLIC_IP>:3000` 포함 |
+
+### 4) 기동
 
 ```bash
 docker compose up -d --build
-docker compose --profile batch run --rm worker
+docker compose ps
+curl -sf http://127.0.0.1:8000/api/v1/health
 ```
 
-자세한 배포: [docs/aws-deployment.md](docs/aws-deployment.md)
+접속:
+
+- UI: `http://<EC2_PUBLIC_IP>:3000`
+- API docs: `http://<EC2_PUBLIC_IP>:8000/docs`
+
+### 5) 테스트 계정 (최초 1회)
+
+UI 회원가입을 쓰거나:
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/v1/auth/signup \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "email":"test@demo-customs.com",
+    "password":"Test1234!",
+    "full_name":"테스트관세사",
+    "office_code":"DEMO-01",
+    "office_name":"데모관세사무소"
+  }'
+```
+
+로그인: `test@demo-customs.com` / `Test1234!` / 사무실 `DEMO-01`
+
+### 6) 유용한 운영 명령
+
+```bash
+# 로그
+docker compose logs -f api
+
+# HS 마스터 재적재
+curl -X POST http://127.0.0.1:8000/api/v1/admin/ingest-hs
+
+# 일괄 실증(로그인 토큰 필요)
+# curl -X POST http://127.0.0.1:8000/api/v1/classify/batch \
+#   -H "Authorization: Bearer <TOKEN>" -H 'Content-Type: application/json' \
+#   -d '{"closed_loop":true,"limit":50}'
+
+# 중지 / 재시작
+docker compose down
+docker compose up -d --build
+```
+
+자세한 배포(ECR/CloudFormation): [docs/aws-deployment.md](docs/aws-deployment.md)
+
+---
+
+## 로컬 빠른 시작
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+# UI http://localhost:3000  ·  API http://localhost:8000/docs
+```
+
+Docker 없이:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r backend/requirements.txt
+export PYTHONPATH=.
+export DATABASE_URL=sqlite:///./data/runtime/hscode.db
+mkdir -p data/runtime
+uvicorn backend.app.main:app --reload --port 8000
+# 다른 터미널
+cd frontend && python3 -m http.server 5173
+```
 
 ## 주요 API
 
-- `POST /api/v1/classify` — 단일 분류 + 의견서 + 폐루프 저장  
-- `POST /api/v1/classify/batch` — 시드 케이스 일괄 실증  
-- `POST /api/v1/experiments/run` — 실험 실행 (ablation: `no_feedback`, `local_only`)  
-- `GET /api/v1/metrics` — Top-1, ESA, RVR, CIR 등  
-- `GET /api/v1/knowledge/history` — K_history  
-- `GET /api/v1/papers` / `GET /api/v1/reports/empirical` — 논문·실증 산출물  
+- `POST /api/v1/auth/signup|login`
+- `POST /api/v1/chat/sessions` · `POST /api/v1/chat/sessions/{id}/messages`
+- `POST /api/v1/classify` · `GET /api/v1/opinions/pending` · `POST /api/v1/opinions/broker-review`
+- `POST /api/v1/documents/upload|paste` · `.../analyze` · `.../save`
+- `GET /api/v1/learning/weights` · `GET /api/v1/metrics`
 
-## 산출물 위치
+## 설계 문서
 
-- `reports/empirical_verification_report.md`  
-- `reports/paper_draft.md`  
-- `docs/work_orders/` — 총괄 작업지시서  
-- `docs/design/master_plan.json` — 설계 기획  
+- [docs/design/chat_docs_screens.md](docs/design/chat_docs_screens.md)
+- [docs/design/legacy_integration_plan.md](docs/design/legacy_integration_plan.md)
+- [docs/aws-deployment.md](docs/aws-deployment.md)
 
 ## 라이선스
 

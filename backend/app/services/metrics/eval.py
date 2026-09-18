@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session
 from backend.app.db.models import ClassificationResult, CorrectionDelta, ProductCase
 
 
-def compute_metrics(db: Session, session_prefix: str | None = None) -> dict[str, Any]:
+def compute_metrics(db: Session, session_prefix: str | None = None, office_id: int | None = None) -> dict[str, Any]:
     q = db.query(ClassificationResult)
+    if office_id is not None:
+        q = q.filter(ClassificationResult.office_id == office_id)
     results = q.all()
     if not results:
         return {

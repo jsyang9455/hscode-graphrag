@@ -11,7 +11,9 @@ RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
 COPY backend /app/backend
 COPY orchestration /app/orchestration
-COPY data /app/data
+COPY data/kcs/chapter_ko.json /app/data/kcs/chapter_ko.json
+COPY data/kcs/harmonized_system.csv /app/data/kcs/harmonized_system.csv
+COPY data/kcs/kcs_hsk_priority.csv /app/data/kcs/kcs_hsk_priority.csv
 COPY scripts /app/scripts
 
 ENV PYTHONPATH=/app
