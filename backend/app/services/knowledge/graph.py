@@ -107,15 +107,17 @@ class HSKnowledgeGraph:
                 continue
             if kw in q:
                 weight = 20.0 + min(len(kw), 16) * 0.25
-                for c in codes:
+                for i, c in enumerate(codes):
                     target = c if c in self.by_code else next((x for x in self.by_code if x.startswith(c[:4])), None)
                     if not target:
                         continue
                     boost = office_w.get((kw, target), office_w.get((kw, c), 1.0))
                     # office learning boost capped so it cannot dominate curated misses forever
                     boost = min(float(boost), 2.5)
-                    scores[target] = scores.get(target, 0.0) + weight * boost
-                    curated_hit_codes.add(target)
+                    primary = 1.0 if i == 0 else 0.25
+                    scores[target] = scores.get(target, 0.0) + weight * boost * primary
+                    if i == 0:
+                        curated_hit_codes.add(target)
 
         # 2) Exact query-token hits against title inverted index
         for tok in q_tokens:

@@ -29,10 +29,11 @@ ECOM_KEYWORDS: dict[str, list[str]] = {
     "beauty": ["3304"],
     "moisturizer": ["3304"],
     "화장품": ["3304"],
-    "크림": ["3304"],
-    "세럼": ["3304"],
-    "로션": ["3304"],
-    "히알루론": ["3304"],
+    "크림": ["3304.99.1000", "3304"],
+    "세럼": ["3304.99.1000", "3304"],
+    "로션": ["3304.99.1000", "3304"],
+    "히알루론": ["3304.99.1000", "3304"],
+    "기초화장": ["3304.99.1000", "3304"],
     # food / supplements
     "supplement": ["2106"],
     "vitamin": ["2106"],
@@ -262,25 +263,39 @@ def ensure_hs_master(db: Session, force: bool = False) -> dict[str, Any]:
     return results
 
 
+def _resolve_codes(codes: list[str], by_code: dict[str, Any], hint: str = "") -> list[str]:
+    hint_tokens = [t for t in re.findall(r"[a-zA-Z가-힣]{2,}", hint.lower()) if len(t) >= 2]
+    resolved: list[str] = []
+    for c in codes:
+        if c in by_code:
+            if c not in resolved:
+                resolved.append(c)
+            continue
+        c_digits = re.sub(r"\D", "", c)
+        matches = [code for code in by_code if re.sub(r"\D", "", code).startswith(c_digits)]
+
+        def rank(code: str) -> tuple:
+            rec = by_code[code]
+            title = f"{rec.title_ko or ''} {rec.title_en or ''}".lower()
+            hit = sum(1 for t in hint_tokens if t in title)
+            dig = re.sub(r"\D", "", code)
+            specificity = sum(1 for a, b in zip(dig, c_digits) if a == b)
+            return (-hit, -specificity, 0 if rec.level >= 10 else 1, code)
+
+        matches.sort(key=rank)
+        if matches and matches[0] not in resolved:
+            resolved.append(matches[0])
+        elif c not in resolved and c in by_code:
+            resolved.append(c)
+    return resolved
+
+
 def build_runtime_index(db: Session) -> dict[str, Any]:
     records = db.query(HsCodeRecord).all()
     by_code = {r.hs_code: r for r in records}
     curated: dict[str, list[str]] = {}
     for kw, codes in ECOM_KEYWORDS.items():
-        resolved = []
-        for c in codes:
-            c_digits = re.sub(r"\D", "", c)
-            matches = [
-                code
-                for code in by_code
-                if re.sub(r"\D", "", code).startswith(c_digits)
-            ]
-            matches.sort(key=lambda x: (0 if by_code[x].level >= 10 else 1, len(x)))
-            if matches:
-                resolved.append(matches[0])
-            elif c in by_code:
-                resolved.append(c)
-        curated[kw.lower()] = resolved or codes
+        curated[kw.lower()] = _resolve_codes(codes, by_code, hint=kw) or list(codes)
 
     # Title token inverted index: exact token -> codes (not substring-scanned as phrases)
     title_index: dict[str, list[str]] = {}
