@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# AWS/EC2: pull → convert ghko99 HS master → ingest → reload GraphRAG.
-# Usage (from repo root):
+# AWS/EC2 after git pull: ensure DB is seeded from shipped ghko99 CSV, then restart API.
+# Usage:
 #   bash scripts/aws_sync_ghko99.sh
-# Optional: RESTART_CMD='sudo systemctl restart hscode-api' bash scripts/aws_sync_ghko99.sh
+#   RESTART_CMD='sudo systemctl restart hscode-api' bash scripts/aws_sync_ghko99.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,37 +17,47 @@ if [[ -z "$PYTHON" ]]; then
   fi
 fi
 
-echo "[1/4] ensure ghko99 enriched CSV"
-if [[ ! -f data/kcs/ghko99_hscode_enriched.csv ]]; then
-  TMP="$(mktemp -d)"
-  git clone --depth 1 https://github.com/ghko99/Hscode.git "$TMP/Hscode"
-  "$PYTHON" scripts/convert_ghko99_hscode.py --src "$TMP/Hscode"
-  rm -rf "$TMP"
-else
-  echo "  already present: data/kcs/ghko99_hscode_enriched.csv"
+CSV="data/kcs/ghko99_hscode_enriched.csv"
+if [[ ! -f "$CSV" ]]; then
+  echo "ERROR: $CSV missing from repo. Re-pull main or run scripts/convert_ghko99_hscode.py"
+  exit 1
 fi
 
-echo "[2/4] ingest into DB + load GraphRAG"
-"$PYTHON" scripts/import_ghko99_hscode.py
+echo "[1/3] seed DB from shipped ghko99 CSV ($CSV)"
+"$PYTHON" - <<'PY'
+from backend.app.db.models import init_db, get_session_factory, reset_engine_cache
+from backend.app.services.knowledge.loader import seed_default_hs_master
+from backend.app.services.knowledge.graph import get_kg
+import json
 
-echo "[3/4] quick health check"
+reset_engine_cache()
+init_db()
+db = get_session_factory()()
+try:
+    seed = seed_default_hs_master(db, force=True)
+    kg = get_kg().load_from_db(db)
+    print(json.dumps({**seed, "kg_nodes": kg}, ensure_ascii=False, indent=2))
+finally:
+    db.close()
+PY
+
+echo "[2/3] health sample"
 "$PYTHON" - <<'PY'
 from backend.app.db.models import get_session_factory, HsCodeRecord, init_db
 from backend.app.services.knowledge.graph import get_kg
 init_db()
 db = get_session_factory()()
 n = db.query(HsCodeRecord).count()
-kg = get_kg().load_from_db(db)
 hits = get_kg().local_search("인스턴트 커피", top_k=1)
-print({"hs_records": n, "kg_nodes": kg, "sample_top1": hits[0]["code"] if hits else None})
+print({"hs_records": n, "sample_top1": hits[0]["code"] if hits else None})
 db.close()
 PY
 
 if [[ -n "${RESTART_CMD:-}" ]]; then
-  echo "[4/4] restart: $RESTART_CMD"
+  echo "[3/3] restart: $RESTART_CMD"
   eval "$RESTART_CMD"
 else
-  echo "[4/4] skip restart (set RESTART_CMD to restart your API process)"
+  echo "[3/3] skip restart (set RESTART_CMD=... to restart API)"
 fi
 
-echo "done"
+echo "done — on next API start, seed_default_hs_master runs automatically if DB is empty"

@@ -276,8 +276,54 @@ def ingest_ghko99(db: Session, csv_path: Path = GHKO99_CSV, limit: int | None = 
         "https://github.com/ghko99/Hscode"
     )
     meta["is_ghko99_enriched"] = True
+    meta["source_file"] = "data/kcs/ghko99_hscode_enriched.csv"
     META_PATH.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return meta
+
+
+def seed_default_hs_master(db: Session, *, force: bool = False) -> dict[str, Any]:
+    """AWS/local startup seed: load shipped ghko99 CSV into empty/sparse DB once.
+
+    - If DB already has a full ghko99 seed (>= 10k hs records), skip unless force=True.
+    - Prefer data/kcs/ghko99_hscode_enriched.csv (committed in repo for EC2 git pull).
+    - Fallback: priority KCS → kcs master → WCO.
+    """
+    count = db.query(HsCodeRecord).count()
+    ghko99_n = (
+        db.query(HsCodeRecord).filter(HsCodeRecord.source == "ghko99_hscode").count()
+    )
+    if not force and count >= 10000 and ghko99_n >= 5000:
+        return {
+            "skipped": True,
+            "reason": "already_seeded",
+            "total_in_db": count,
+            "ghko99_sourced": ghko99_n,
+            "primary": "ghko99_hscode_enriched.csv",
+        }
+
+    steps: list[Any] = []
+    if GHKO99_CSV.exists():
+        steps.append({"ghko99": ingest_ghko99(db, csv_path=GHKO99_CSV)})
+    else:
+        priority = ROOT / "data" / "kcs" / "kcs_hsk_priority.csv"
+        if KCS_CSV.exists():
+            steps.append({"kcs_master": ingest_kcs_hsk(db, csv_path=KCS_CSV)})
+        elif priority.exists():
+            steps.append({"priority": ingest_kcs_hsk(db, csv_path=priority)})
+        else:
+            steps.append({"wco": ingest_wco_fallback(db)})
+
+    total = db.query(HsCodeRecord).count()
+    return {
+        "skipped": False,
+        "force": force,
+        "steps": steps,
+        "total_in_db": total,
+        "ghko99_sourced": db.query(HsCodeRecord)
+        .filter(HsCodeRecord.source == "ghko99_hscode")
+        .count(),
+        "primary": "ghko99_hscode_enriched.csv" if GHKO99_CSV.exists() else "fallback",
+    }
 
 
 def ensure_hs_master(db: Session, force: bool = False) -> dict[str, Any]:

@@ -8,10 +8,10 @@ from backend.app.api.routes import router
 from backend.app.api.chat_docs import router as chat_docs_router
 from backend.app.api.agents import router as agents_router
 from backend.app.core.config import get_settings
-from backend.app.db.models import HsCodeRecord, init_db, get_session_factory
+from backend.app.db.models import init_db, get_session_factory
 from backend.app.services.auth.bootstrap import ensure_demo_account
 from backend.app.services.knowledge.graph import get_kg
-from backend.app.services.knowledge.loader import ingest_kcs_hsk, ingest_wco_fallback, KCS_CSV
+from backend.app.services.knowledge.loader import seed_default_hs_master
 
 
 def create_app() -> FastAPI:
@@ -46,29 +46,9 @@ def create_app() -> FastAPI:
                 f"[startup] demo account email={demo['email']} "
                 f"office={demo['office_code']} created_user={demo['created_user']}"
             )
-            n = db.query(HsCodeRecord).count()
-            ghko99 = Path("data/kcs/ghko99_hscode_enriched.csv")
-            if n < 100:
-                priority = Path("data/kcs/kcs_hsk_priority.csv")
-                if ghko99.exists():
-                    from backend.app.services.knowledge.loader import ingest_ghko99
-
-                    meta = ingest_ghko99(db, csv_path=ghko99)
-                    print(f"[startup] ghko99 Hscode ingest: {meta}")
-                elif priority.exists():
-                    meta = ingest_kcs_hsk(db, csv_path=priority)
-                    print(f"[startup] priority KCS ingest: {meta}")
-                elif KCS_CSV.exists():
-                    meta = ingest_kcs_hsk(db, limit=8000)
-                    print(f"[startup] partial KCS ingest: {meta}")
-                else:
-                    meta = ingest_wco_fallback(db)
-                    print(f"[startup] WCO fallback: {meta}")
-            elif ghko99.exists() and n < 10000:
-                from backend.app.services.knowledge.loader import ingest_ghko99
-
-                meta = ingest_ghko99(db, csv_path=ghko99)
-                print(f"[startup] ghko99 enrich: {meta}")
+            # Primary seed: shipped ghko99 enriched HS master (repo data/kcs/*.csv)
+            seed = seed_default_hs_master(db)
+            print(f"[startup] HS seed: {seed}")
             loaded = get_kg().load_from_db(db)
             print(f"[startup] GraphRAG nodes={loaded}")
         except Exception as e:  # noqa: BLE001
