@@ -37,3 +37,4 @@
 | Metric guardrails | mode collapse / GIR avoidance flags + K_guard |
 | Ablation no-feedback | `closed_loop=false` / experiment ablation |
 | RQ metrics | Top-1, ESA, RVR, CIR, escalation |
+| SIA harness loop (MVP) | Office scaffold self-improve via blind verifier + Feedback-Agent — see [sia_harness_loop.md](./sia_harness_loop.md) |

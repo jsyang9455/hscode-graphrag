@@ -173,6 +173,8 @@ cd frontend && python3 -m http.server 5173
 - [docs/design/chat_docs_screens.md](docs/design/chat_docs_screens.md)
 - [docs/design/legacy_integration_plan.md](docs/design/legacy_integration_plan.md)
 - [docs/aws-deployment.md](docs/aws-deployment.md)
+- [docs/sia_harness_loop.md](docs/sia_harness_loop.md) — SIA식 harness 자기개선 루프 (논문/설계)
+- [docs/architecture.md](docs/architecture.md)
 
 ## 라이선스
 
