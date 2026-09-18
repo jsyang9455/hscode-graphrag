@@ -46,6 +46,7 @@ class HSKnowledgeGraph:
             },
         ]
         self._office_weights: dict[int, dict[tuple[str, str], float]] = {}
+        self._office_phrases: dict[int, dict[str, list[str]]] = {}
         self.curated: dict[str, list[str]] = {}
         self.title_index: dict[str, list[str]] = {}
         self.loaded = False
@@ -87,7 +88,23 @@ class HSKnowledgeGraph:
 
     def refresh_office_weights(self, db: Session, office_id: int) -> None:
         rows = db.query(TenantKeywordWeight).filter(TenantKeywordWeight.office_id == office_id).all()
-        self._office_weights[office_id] = {(r.keyword, r.hs_code): r.weight for r in rows}
+        self._office_weights[office_id] = {(r.keyword, r.hs_code): float(r.weight) for r in rows}
+        self.build_office_phrase_overlay(office_id)
+
+    def build_office_phrase_overlay(self, office_id: int) -> dict[str, list[str]]:
+        """Promote high-evidence office keywords/phrases into a dynamic curated overlay."""
+        weights = self._office_weights.get(office_id) or {}
+        phrase_map: dict[str, list[tuple[str, float]]] = {}
+        for (kw, hs), w in weights.items():
+            if w < 1.35 and " " not in kw:
+                continue
+            phrase_map.setdefault(kw, []).append((hs, w))
+        overlay: dict[str, list[str]] = {}
+        for kw, pairs in phrase_map.items():
+            pairs.sort(key=lambda x: x[1], reverse=True)
+            overlay[kw] = [hs for hs, _ in pairs[:3]]
+        self._office_phrases[office_id] = overlay
+        return overlay
 
     @staticmethod
     def _tokens(text: str) -> list[str]:
@@ -98,6 +115,7 @@ class HSKnowledgeGraph:
         q_tokens = self._tokens(q)
         scores: dict[str, float] = {}
         office_w = self._office_weights.get(office_id or -1, {})
+        office_phrases = self._office_phrases.get(office_id or -1, {})
 
         # 1) Curated multi-word / keyword phrases (highest priority)
         curated_hit_codes: set[str] = set()
@@ -112,19 +130,41 @@ class HSKnowledgeGraph:
                     if not target:
                         continue
                     boost = office_w.get((kw, target), office_w.get((kw, c), 1.0))
-                    # office learning boost capped so it cannot dominate curated misses forever
                     boost = min(float(boost), 2.5)
                     primary = 1.0 if i == 0 else 0.25
                     scores[target] = scores.get(target, 0.0) + weight * boost * primary
                     if i == 0:
                         curated_hit_codes.add(target)
 
+        # 1b) Dynamic office phrase overlay (learned patterns)
+        for kw, codes in sorted(office_phrases.items(), key=lambda kv: len(kv[0]), reverse=True):
+            if len(kw) < 2 or kw not in q:
+                continue
+            weight = 14.0 + min(len(kw), 16) * 0.3
+            for i, c in enumerate(codes):
+                target = c if c in self.by_code else next((x for x in self.by_code if x.startswith(c[:4])), None)
+                if not target:
+                    # still allow learned HS even if not in master yet
+                    target = c
+                boost = min(float(office_w.get((kw, c), 1.4)), 3.0)
+                scores[target] = scores.get(target, 0.0) + weight * boost * (1.0 if i == 0 else 0.35)
+                if i == 0:
+                    curated_hit_codes.add(target)
+
+        # 1c) Query-token office weights (makes HITL/workdoc learning actually move ranks)
+        token_boosts: dict[str, float] = {}
+        for tok in q_tokens:
+            for (kw, hs), w in office_w.items():
+                if kw == tok or (len(kw) >= 4 and kw in q and tok in kw.split()):
+                    token_boosts[hs] = token_boosts.get(hs, 0.0) + float(w) * (1.15 if " " in kw else 0.85)
+        for hs, boost in token_boosts.items():
+            scores[hs] = scores.get(hs, 0.0) + min(boost, 12.0)
+
         # 2) Exact query-token hits against title inverted index
         for tok in q_tokens:
             if tok in {"material", "usage", "function"}:
                 continue
             for code in self.title_index.get(tok, []):
-                # if curated already selected family, lightly boost siblings only
                 penalty = 0.35 if curated_hit_codes and code not in curated_hit_codes else 1.0
                 scores[code] = scores.get(code, 0.0) + 0.9 * penalty
 
@@ -154,7 +194,7 @@ class HSKnowledgeGraph:
                 {
                     "code": code,
                     "score": round(score, 3),
-                    "title": meta.get("title"),
+                    "title": meta.get("title") or meta.get("title_ko") or meta.get("title_en") or code,
                     "channel": "local",
                     "source": meta.get("source", "kg"),
                 }

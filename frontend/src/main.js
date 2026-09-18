@@ -602,7 +602,7 @@ document.getElementById("doc-edit-form").addEventListener("submit", async (e) =>
     document.getElementById("doc-upload-msg").textContent =
       `학습 반영 완료 · classification=${doc.classification_id || "-"} · weights=${
         (doc.learning_artifact?.weight_updates || []).length
-      }`;
+      } · overlay=${doc.office_model?.phrase_overlay ?? doc.learning_artifact?.office_model?.phrase_overlay ?? "-"}`;
     await refreshDocuments();
     refreshPending();
     refreshWeights();
@@ -652,8 +652,85 @@ async function refreshWeights() {
     : `<p class="muted">아직 학습 가중치가 없습니다. 의견서/업무자료를 반영하세요.</p>`;
 }
 
+async function refreshBlindEvals() {
+  const el = document.getElementById("blind-eval-list");
+  if (!el) return;
+  try {
+    const out = await api("/agents/blind-eval/latest?limit=5");
+    const runs = out.runs || [];
+    el.innerHTML = runs.length
+      ? runs
+          .map((r) => {
+            const ev = r.metrics?.evaluation || {};
+            const plan = r.metrics?.plan || {};
+            return `<article class="card-lite">
+          <span class="badge ${r.status === "completed" ? "" : "warn"}">${esc(r.status)}</span>
+          <strong>#${r.id} ${esc(r.name)}</strong>
+          <div class="muted">품질 ${fmt(ev.quality_score)} · prefix4 ${fmt(ev.metrics?.prefix4_hit_rate)} · ${esc(
+              (plan.actions || [])[0] || ""
+            )}</div>
+        </article>`;
+          })
+          .join("")
+      : `<p class="muted">아직 블라인드 검증 이력이 없습니다.</p>`;
+  } catch {
+    el.innerHTML = `<p class="muted">블라인드 검증 이력을 불러오지 못했습니다.</p>`;
+  }
+}
+
+document.getElementById("btn-retrain")?.addEventListener("click", async () => {
+  const box = document.getElementById("agent-status");
+  box.hidden = false;
+  box.textContent = "사무실 모델 재학습 중…";
+  try {
+    const out = await api("/learning/retrain", { method: "POST", body: "{}" });
+    box.textContent = JSON.stringify(out.office_model || out, null, 2);
+    refreshWeights();
+    refreshMetrics();
+  } catch (ex) {
+    box.textContent = ex.message;
+  }
+});
+
+document.getElementById("btn-blind-eval")?.addEventListener("click", async () => {
+  const box = document.getElementById("agent-status");
+  const btn = document.getElementById("btn-blind-eval");
+  box.hidden = false;
+  box.textContent = "블라인드 테스터 → 평가 → 총괄 사이클 실행 중…";
+  btn.disabled = true;
+  try {
+    const out = await api("/agents/blind-eval/run", {
+      method: "POST",
+      body: JSON.stringify({ limit: 8, auto_remediate: true }),
+    });
+    const summary = {
+      status: out.status,
+      quality_score: out.evaluation?.quality_score,
+      passed: out.evaluation?.passed,
+      metrics: out.evaluation?.metrics,
+      remediations: out.remediations,
+      plan: out.plan,
+      learning_stats: out.learning_stats,
+    };
+    box.textContent = JSON.stringify(summary, null, 2);
+    await refreshBlindEvals();
+    refreshWeights();
+    refreshMetrics();
+  } catch (ex) {
+    box.textContent = ex.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 async function refreshAll() {
-  await Promise.allSettled([refreshPending(), refreshMetrics(), refreshWeights(), refreshDocuments()]);
+  await Promise.allSettled([
+    refreshPending(),
+    refreshMetrics(),
+    refreshWeights(),
+    refreshDocuments(),
+    refreshBlindEvals(),
+  ]);
 }
 
 const TEST_ACCOUNT = {

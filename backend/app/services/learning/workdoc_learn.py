@@ -9,19 +9,14 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from backend.app.db.models import (
-    GuardrailState,
-    KnowledgeHistory,
-    ProductCase,
-    TenantKeywordWeight,
-    WorkDocument,
-)
+from backend.app.db.models import GuardrailState, ProductCase, WorkDocument
 from backend.app.services.classification.pipeline import ClassificationPipeline
-from backend.app.services.knowledge.graph import get_kg
-
-
-def _tokens(text: str) -> list[str]:
-    return [t.lower() for t in re.findall(r"[A-Za-z가-힣]{2,}", (text or "").lower())][:12]
+from backend.app.services.learning.adaptive import (
+    after_office_learning,
+    apply_pattern_learning,
+    extract_features,
+    upsert_knowledge_history,
+)
 
 
 def save_work_document_learning(
@@ -38,18 +33,27 @@ def save_work_document_learning(
     usage = fields.get("usage")
     suggested_hs = (fields.get("suggested_hs") or "").strip() or None
     opinion = fields.get("broker_opinion_excerpt") or ""
-    keywords = fields.get("keywords") or _tokens(description)
+    keywords = fields.get("keywords") or []
+    features = extract_features(
+        description=description,
+        material=material,
+        usage=usage,
+        opinion=opinion,
+        max_features=16,
+    )
+    if keywords:
+        features = list(dict.fromkeys([*(str(k).lower() for k in keywords[:8]), *features]))[:16]
 
     digits = re.sub(r"\D", "", suggested_hs or "")
     chapter = int(digits[:2]) if len(digits) >= 2 else 0
 
-    # 1) Knowledge history from broker materials
-    hist = KnowledgeHistory(
+    # 1) Idempotent knowledge history (re-save updates same workdoc key)
+    hist = upsert_knowledge_history(
+        db,
         office_id=office_id,
         key=f"workdoc:{doc.id}:{suggested_hs or 'na'}",
         chapter=chapter,
-        product_category=(keywords[0] if keywords else "general"),
-        violation_type=None,
+        product_category=(features[0] if features else "general"),
         payload={
             "id": f"wd-{doc.id}",
             "document_id": doc.id,
@@ -60,42 +64,24 @@ def save_work_document_learning(
             "usage": usage,
             "corrected_code": suggested_hs,
             "broker_opinion": opinion,
-            "keywords": keywords,
+            "keywords": features,
             "source": "work_document",
         },
         source="work_document",
     )
-    db.add(hist)
     db.flush()
 
-    # 2) Keyword weights toward suggested HS (if present)
-    weight_updates = []
+    # 2) Online adaptive pattern learning toward suggested HS
+    weight_updates: list[dict[str, Any]] = []
     if suggested_hs:
-        for kw in keywords[:8]:
-            row = (
-                db.query(TenantKeywordWeight)
-                .filter(
-                    TenantKeywordWeight.office_id == office_id,
-                    TenantKeywordWeight.keyword == kw,
-                    TenantKeywordWeight.hs_code == suggested_hs,
-                )
-                .first()
-            )
-            if row:
-                row.weight = min(5.0, float(row.weight) + 0.35)
-                row.evidence_count = int(row.evidence_count or 0) + 1
-                row.updated_at = datetime.utcnow()
-            else:
-                row = TenantKeywordWeight(
-                    office_id=office_id,
-                    keyword=kw,
-                    hs_code=suggested_hs,
-                    weight=1.35,
-                    evidence_count=1,
-                )
-                db.add(row)
-            weight_updates.append({"keyword": kw, "hs_code": suggested_hs, "weight": row.weight})
-
+        weight_updates = apply_pattern_learning(
+            db,
+            office_id=office_id,
+            features=features,
+            target_hs=suggested_hs,
+            wrong_hs=None,
+            source="work_document",
+        )
         guard = (
             db.query(GuardrailState)
             .filter(GuardrailState.office_id == office_id, GuardrailState.chapter == chapter)
@@ -142,6 +128,7 @@ def save_work_document_learning(
         "knowledge_history_id": hist.id,
         "weight_updates": weight_updates,
         "suggested_hs": suggested_hs,
+        "features": features[:16],
         "classification": classify_out,
     }
     doc.learning_artifact = artifact
@@ -150,14 +137,21 @@ def save_work_document_learning(
     db.commit()
     db.refresh(doc)
 
-    try:
-        get_kg().refresh_office_weights(db, office_id)
-    except Exception:  # noqa: BLE001
-        pass
+    # 3) Immediate office GraphRAG rebuild
+    model = after_office_learning(db, office_id=office_id, run_probe=True)
+    artifact["office_model"] = {
+        "weight_rows": model.get("weight_rows"),
+        "phrase_overlay": model.get("phrase_overlay"),
+        "probe": model.get("probe"),
+        "top_patterns": model.get("top_patterns", [])[:5],
+    }
+    doc.learning_artifact = artifact
+    db.commit()
 
     return {
         "document_id": doc.id,
         "status": doc.status,
         "learning_artifact": artifact,
         "classification_id": classification_id,
+        "office_model": artifact["office_model"],
     }

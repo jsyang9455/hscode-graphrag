@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TradeFlow · 관세사 HS 분류 보좌</title>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./src/styles/app.css?v=20260318d" />
+  <link rel="stylesheet" href="./src/styles/app.css?v=20260318e" />
 </head>
 <body>
   <div class="atmosphere" aria-hidden="true"></div>
@@ -200,19 +200,24 @@
           <div class="cta-row">
             <button id="btn-data" class="btn">데이터 상태</button>
             <button id="btn-ingest" class="btn">HS 전체 적재</button>
-            <button id="btn-batch" class="btn primary">일괄 실증</button>
+            <button id="btn-batch" class="btn">일괄 실증</button>
+            <button id="btn-retrain" class="btn">사무실 모델 재학습</button>
+            <button id="btn-blind-eval" class="btn primary">블라인드 검증 사이클</button>
           </div>
           <pre id="data-status" class="result" hidden></pre>
+          <pre id="agent-status" class="result soft-result" hidden></pre>
           <h3 class="subhead">사무실 실증 지표</h3>
           <div id="metrics-grid" class="metrics-grid"></div>
           <div id="class-list" class="list"></div>
-          <h3 class="subhead">사무실별 학습 가중치</h3>
+          <h3 class="subhead">사무실별 학습 가중치 · 동적 패턴</h3>
           <div id="weights-list" class="list"></div>
+          <h3 class="subhead">최근 블라인드 검증</h3>
+          <div id="blind-eval-list" class="list"></div>
         </div>
       </section>
     </main>
   </section>
 
-  <script src="./src/main.js?v=20260318d"></script>
+  <script src="./src/main.js?v=20260318e"></script>
 </body>
 </html>

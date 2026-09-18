@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.app.api.routes import router
 from backend.app.api.chat_docs import router as chat_docs_router
+from backend.app.api.agents import router as agents_router
 from backend.app.core.config import get_settings
 from backend.app.db.models import HsCodeRecord, init_db, get_session_factory
 from backend.app.services.auth.bootstrap import ensure_demo_account
@@ -18,7 +19,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="HSCode-GraphRAG API",
         description="Office-tenant Customs Broker HITL + KCS HSK GraphRAG (legacy hscode_prj data)",
-        version="0.3.1",
+        version="0.4.0",
     )
     app.add_middleware(
         CORSMiddleware,
@@ -29,6 +30,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(router, prefix="/api/v1")
     app.include_router(chat_docs_router, prefix="/api/v1")
+    app.include_router(agents_router, prefix="/api/v1")
 
     @app.on_event("startup")
     def _startup() -> None:

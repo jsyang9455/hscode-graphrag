@@ -108,9 +108,22 @@ class MetricGuardrail:
             .limit(50)
             .all()
         )
+        threshold = 0.35
+        digits = re.sub(r"\D", "", hs_code or "")
+        chapter = int(digits[:2]) if len(digits) >= 2 else 0
+        if chapter:
+            from backend.app.db.models import GuardrailState
+
+            guard = (
+                db.query(GuardrailState)
+                .filter(GuardrailState.office_id == office_id, GuardrailState.chapter == chapter)
+                .first()
+            )
+            if guard and guard.mode_collapse_threshold:
+                threshold = float(guard.mode_collapse_threshold)
         if recent and len(recent) >= 10:
-            same = sum(1 for r in recent if r.recommended_hs[:2] == hs_code[:2])
-            if same / len(recent) > 0.35:
+            same = sum(1 for r in recent if (r.recommended_hs or "")[:2] == (hs_code or "")[:2])
+            if same / len(recent) > threshold:
                 flags.append("mode_collapse_risk")
         if "GIR3" not in gir and len(gir) <= 1:
             flags.append("gir_avoidance_risk")

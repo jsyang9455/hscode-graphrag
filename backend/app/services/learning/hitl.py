@@ -16,9 +16,13 @@ from backend.app.db.models import (
     KnowledgeHistory,
     OpinionReport,
     ProductCase,
-    TenantKeywordWeight,
 )
 from backend.app.services.knowledge.graph import get_kg
+from backend.app.services.learning.adaptive import (
+    after_office_learning,
+    apply_pattern_learning,
+    extract_features,
+)
 
 
 CONDITION_LABELS = {
@@ -71,7 +75,15 @@ def apply_broker_feedback(
 
     case = db.query(ProductCase).filter(ProductCase.id == clf.case_id).first()
     desc = case.description if case else ""
-    tokens = _tokens(desc)[:12]
+    features = extract_features(
+        description=desc,
+        material=case.material if case else None,
+        usage=case.function if case else None,
+        opinion=detail_opinion,
+        conditions=conditions,
+        max_features=16,
+    )
+    tokens = features[:12] if features else _tokens(desc)[:12]
 
     # 1) Persist HITL feedback
     fb = BrokerOpinionFeedback(
@@ -155,48 +167,15 @@ def apply_broker_feedback(
     )
     db.add(kh)
 
-    # 6) Tenant keyword weights — GraphRAG local search boost
-    weight_updates = []
-    for tok in tokens:
-        row = (
-            db.query(TenantKeywordWeight)
-            .filter(
-                TenantKeywordWeight.office_id == office_id,
-                TenantKeywordWeight.keyword == tok,
-                TenantKeywordWeight.hs_code == broker_hs,
-            )
-            .first()
-        )
-        if row:
-            row.weight = min(5.0, float(row.weight) + 0.35)
-            row.evidence_count += 1
-            row.updated_at = datetime.utcnow()
-        else:
-            row = TenantKeywordWeight(
-                office_id=office_id,
-                keyword=tok,
-                hs_code=broker_hs,
-                weight=1.5 if hs_changed else 1.2,
-                evidence_count=1,
-            )
-            db.add(row)
-        weight_updates.append({"keyword": tok, "hs_code": broker_hs, "weight": row.weight})
-
-    # If system was wrong, gently down-weight system mapping for same tokens
-    if hs_changed:
-        for tok in tokens[:6]:
-            bad = (
-                db.query(TenantKeywordWeight)
-                .filter(
-                    TenantKeywordWeight.office_id == office_id,
-                    TenantKeywordWeight.keyword == tok,
-                    TenantKeywordWeight.hs_code == system_hs,
-                )
-                .first()
-            )
-            if bad:
-                bad.weight = max(0.2, float(bad.weight) - 0.25)
-                bad.updated_at = datetime.utcnow()
+    # 6) Online adaptive pattern learning → GraphRAG office model
+    weight_updates = apply_pattern_learning(
+        db,
+        office_id=office_id,
+        features=features or tokens,
+        target_hs=broker_hs,
+        wrong_hs=system_hs if hs_changed else None,
+        source="broker_hitl",
+    )
 
     # 7) K_guard reality anchor (office+chapter)
     guard = (
@@ -225,6 +204,7 @@ def apply_broker_feedback(
         "guard_chapter": chapter,
         "guard_corrections": guard.correction_count,
         "conditions": conditions,
+        "features": features[:16],
     }
     fb.applied_to_learning = True
     fb.learning_artifact = learning_artifact
@@ -232,8 +212,16 @@ def apply_broker_feedback(
     db.commit()
     db.refresh(fb)
 
-    # refresh in-memory office weights
-    kg.refresh_office_weights(db, office_id)
+    # Immediate model rebuild + light probe so GraphRAG uses new patterns now
+    model = after_office_learning(db, office_id=office_id, run_probe=True)
+    learning_artifact["office_model"] = {
+        "weight_rows": model.get("weight_rows"),
+        "phrase_overlay": model.get("phrase_overlay"),
+        "probe": model.get("probe"),
+        "top_patterns": model.get("top_patterns", [])[:5],
+    }
+    fb.learning_artifact = learning_artifact
+    db.commit()
 
     return {
         "feedback_id": fb.id,
@@ -243,4 +231,5 @@ def apply_broker_feedback(
         "conditions": conditions,
         "applied_to_learning": True,
         "learning_artifact": learning_artifact,
+        "office_model": learning_artifact["office_model"],
     }
